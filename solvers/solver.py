@@ -44,3 +44,27 @@ def default_result(method: str, cfg: dict, orders: Optional[list[Order]] = None)
         "shipper_rewards": [],
         "status": "TODO",
     }
+import collections
+from typing import List, Tuple
+
+def bfs_path(grid: List[List[int]], start: Tuple[int, int], goal: Tuple[int, int]) -> List[str]:
+    """Tìm một đường đi hợp lệ từ start đến goal bằng BFS."""
+    if start == goal:
+        return []
+
+    n = len(grid)
+    q = collections.deque([(start[0], start[1], [])])
+    visited = {start}
+
+    for_action = [("U", -1, 0), ("D", 1, 0), ("L", 0, -1), ("R", 0, 1)]
+
+    while q:
+        r, c, path = q.popleft()
+        for action, dr, dc in for_action:
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < n and 0 <= nc < n and grid[nr][nc] == 0 and (nr, nc) not in visited:
+                if (nr, nc) == goal:
+                    return path + [action]
+                visited.add((nr, nc))
+                q.append((nr, nc, path + [action]))
+    return []
