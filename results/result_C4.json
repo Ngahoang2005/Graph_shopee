@@ -1,0 +1,86 @@
+{
+  "config_name": "C4",
+  "orders_generated": 80,
+  "results": [
+    {
+      "method": "Greedy BFS Simple Baseline",
+      "config_name": "C4",
+      "total_orders": 80,
+      "delivered": 48,
+      "on_time": 28,
+      "late": 20,
+      "missed": 32,
+      "delivery_rate": 60.0,
+      "on_time_rate": 35.0,
+      "total_reward": 466.9075,
+      "total_movecost": -6.3234,
+      "net_reward": 460.5841,
+      "elapsed_sec": 0.02,
+      "shipper_rewards": [
+        446.1481,
+        -0.07,
+        -0.16,
+        14.6659
+      ],
+      "wall_sec": 0.03
+    },
+    {
+      "method": "VRP + OR-Tools",
+      "config_name": "C4",
+      "total_orders": 80,
+      "delivered": 0,
+      "on_time": 0,
+      "late": 0,
+      "missed": 80,
+      "delivery_rate": 0.0,
+      "on_time_rate": 0.0,
+      "total_reward": 0.0,
+      "total_movecost": 0.0,
+      "net_reward": 0.0,
+      "elapsed_sec": 0.0,
+      "shipper_rewards": [],
+      "status": "Chưa cài đặt",
+      "wall_sec": 0.0
+    },
+    {
+      "method": "Ant Colony Optimization",
+      "config_name": "C4",
+      "total_orders": 80,
+      "delivered": 57,
+      "on_time": 41,
+      "late": 16,
+      "missed": 23,
+      "delivery_rate": 71.25,
+      "on_time_rate": 51.25,
+      "total_reward": 819.1531,
+      "total_movecost": -7.8837,
+      "net_reward": 811.2694,
+      "elapsed_sec": 0.29,
+      "shipper_rewards": [
+        292.5102,
+        348.9538,
+        155.9684,
+        13.837
+      ],
+      "wall_sec": 0.29
+    },
+    {
+      "method": "MAPD-CBS",
+      "config_name": "C4",
+      "total_orders": 80,
+      "delivered": 0,
+      "on_time": 0,
+      "late": 0,
+      "missed": 80,
+      "delivery_rate": 0.0,
+      "on_time_rate": 0.0,
+      "total_reward": 0.0,
+      "total_movecost": 0.0,
+      "net_reward": 0.0,
+      "elapsed_sec": 0.0,
+      "shipper_rewards": [],
+      "status": "Chưa cài đặt",
+      "wall_sec": 0.0
+    }
+  ]
+}
