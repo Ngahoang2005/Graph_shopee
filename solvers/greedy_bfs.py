@@ -447,6 +447,9 @@ class GreedyBFS(Solver):
                 del self.hotspot_memory[pos] # heat nhỏ quá thì coi như đây kcon là hotspot nữa
 
         for order in orders.values():
+            if order.id in self.last_seen_orders: # mỗi đơn chỉ contribute heat đúng 1 lần tại thời điểm nó mới được sinh
+                continue 
+
             if order.picked or order.delivered:
                 continue
 
@@ -454,6 +457,7 @@ class GreedyBFS(Solver):
 
             self.hotspot_memory[center] += 1.0 # cách nghĩ bên dưới phức tạp quá, tăng heat tại pickup center là đủ
 
+            self.last_seen_orders.add(order.id)
             # for dr in range(-self.adaptive_radius, self.adaptive_radius +1):
             #     for dc in range(-self.adaptive_radius, self.adaptive_radius +1):
             #         # để tránh update Gaussian influence lên toàn bộ map, chỉ update trong khoảng cách ảnh hưởng mà đề cho là manhattan <= 3

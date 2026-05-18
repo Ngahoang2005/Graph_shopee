@@ -8,25 +8,25 @@
       "config_name": "C6",
       "total_orders": 100,
       "orders_generated": 100,
-      "delivered": 25,
-      "on_time": 21,
-      "late": 4,
-      "missed": 75,
-      "delivery_rate": 25.0,
-      "on_time_rate": 84.0,
-      "total_reward": 413.8879,
-      "total_movecost": -14.8863,
-      "net_reward": 399.0016,
-      "elapsed_sec": 6.7477,
+      "delivered": 24,
+      "on_time": 19,
+      "late": 5,
+      "missed": 76,
+      "delivery_rate": 24.0,
+      "on_time_rate": 79.16666666666667,
+      "total_reward": 446.2714,
+      "total_movecost": -9.7846,
+      "net_reward": 436.4868,
+      "elapsed_sec": 6.1187,
       "shipper_rewards": [
-        75.6027,
-        110.5197,
-        35.5549,
-        156.3478,
-        20.9766
+        34.8179,
+        97.3957,
+        163.0823,
+        3.3289,
+        137.862
       ],
       "status": "OK",
-      "wall_sec": 6.75
+      "wall_sec": 6.13
     }
   ]
 }

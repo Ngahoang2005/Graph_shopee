@@ -9,22 +9,22 @@
       "total_orders": 40,
       "orders_generated": 40,
       "delivered": 14,
-      "on_time": 11,
-      "late": 3,
+      "on_time": 13,
+      "late": 1,
       "missed": 26,
       "delivery_rate": 35.0,
-      "on_time_rate": 78.57142857142857,
-      "total_reward": 353.4977,
-      "total_movecost": -3.2122,
-      "net_reward": 350.2854,
-      "elapsed_sec": 0.5775,
+      "on_time_rate": 92.85714285714286,
+      "total_reward": 400.6408,
+      "total_movecost": -3.456,
+      "net_reward": 397.1848,
+      "elapsed_sec": 0.5226,
       "shipper_rewards": [
-        219.0111,
-        89.6418,
-        41.6325
+        183.1097,
+        114.7879,
+        99.2872
       ],
       "status": "OK",
-      "wall_sec": 0.58
+      "wall_sec": 0.52
     }
   ]
 }
