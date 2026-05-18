@@ -14,16 +14,16 @@
       "missed": 2,
       "delivery_rate": 86.66666666666667,
       "on_time_rate": 100.0,
-      "total_reward": 267.575,
-      "total_movecost": -0.9032,
-      "net_reward": 266.6718,
-      "elapsed_sec": 0.1099,
+      "total_reward": 266.8704,
+      "total_movecost": -1.4782,
+      "net_reward": 265.3922,
+      "elapsed_sec": 0.1234,
       "shipper_rewards": [
-        232.5665,
-        34.1053
+        172.7253,
+        92.6669
       ],
       "status": "OK",
-      "wall_sec": 0.11
+      "wall_sec": 0.12
     }
   ]
 }

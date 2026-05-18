@@ -8,22 +8,22 @@
       "config_name": "C2",
       "total_orders": 25,
       "orders_generated": 25,
-      "delivered": 8,
-      "on_time": 7,
-      "late": 1,
-      "missed": 17,
-      "delivery_rate": 32.0,
-      "on_time_rate": 87.5,
-      "total_reward": 132.1034,
-      "total_movecost": -1.12,
-      "net_reward": 130.9834,
-      "elapsed_sec": 0.2152,
+      "delivered": 3,
+      "on_time": 3,
+      "late": 0,
+      "missed": 22,
+      "delivery_rate": 12.0,
+      "on_time_rate": 100.0,
+      "total_reward": 82.9875,
+      "total_movecost": -0.7602,
+      "net_reward": 82.2274,
+      "elapsed_sec": 0.1555,
       "shipper_rewards": [
-        108.6807,
-        22.3027
+        67.826,
+        14.4014
       ],
       "status": "OK",
-      "wall_sec": 0.22
+      "wall_sec": 0.16
     }
   ]
 }

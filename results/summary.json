@@ -2,9 +2,9 @@
   "config_file": "test_config.txt",
   "seed": 42,
   "online_generation": true,
-  "total_elapsed": 11.08,
+  "total_elapsed": 13.4,
   "total_score_by_method": {
-    "GreedyBFS": 1854.0088
+    "GreedyBFS": 2122.4851
   },
   "results_by_config": [
     {
@@ -23,16 +23,16 @@
           "missed": 2,
           "delivery_rate": 86.66666666666667,
           "on_time_rate": 100.0,
-          "total_reward": 267.575,
-          "total_movecost": -0.9032,
-          "net_reward": 266.6718,
-          "elapsed_sec": 0.1099,
+          "total_reward": 266.8704,
+          "total_movecost": -1.4782,
+          "net_reward": 265.3922,
+          "elapsed_sec": 0.1234,
           "shipper_rewards": [
-            232.5665,
-            34.1053
+            172.7253,
+            92.6669
           ],
           "status": "OK",
-          "wall_sec": 0.11
+          "wall_sec": 0.12
         }
       ]
     },
@@ -46,22 +46,22 @@
           "config_name": "C2",
           "total_orders": 25,
           "orders_generated": 25,
-          "delivered": 8,
-          "on_time": 7,
-          "late": 1,
-          "missed": 17,
-          "delivery_rate": 32.0,
-          "on_time_rate": 87.5,
-          "total_reward": 132.1034,
-          "total_movecost": -1.12,
-          "net_reward": 130.9834,
-          "elapsed_sec": 0.2152,
+          "delivered": 3,
+          "on_time": 3,
+          "late": 0,
+          "missed": 22,
+          "delivery_rate": 12.0,
+          "on_time_rate": 100.0,
+          "total_reward": 82.9875,
+          "total_movecost": -0.7602,
+          "net_reward": 82.2274,
+          "elapsed_sec": 0.1555,
           "shipper_rewards": [
-            108.6807,
-            22.3027
+            67.826,
+            14.4014
           ],
           "status": "OK",
-          "wall_sec": 0.22
+          "wall_sec": 0.16
         }
       ]
     },
@@ -75,23 +75,23 @@
           "config_name": "C3",
           "total_orders": 40,
           "orders_generated": 40,
-          "delivered": 11,
-          "on_time": 10,
-          "late": 1,
-          "missed": 29,
-          "delivery_rate": 27.5,
-          "on_time_rate": 90.9090909090909,
-          "total_reward": 278.0658,
-          "total_movecost": -2.3518,
-          "net_reward": 275.7139,
-          "elapsed_sec": 0.4664,
+          "delivered": 14,
+          "on_time": 11,
+          "late": 3,
+          "missed": 26,
+          "delivery_rate": 35.0,
+          "on_time_rate": 78.57142857142857,
+          "total_reward": 353.4977,
+          "total_movecost": -3.2122,
+          "net_reward": 350.2854,
+          "elapsed_sec": 0.5775,
           "shipper_rewards": [
-            223.1926,
-            52.9159,
-            -0.3945
+            219.0111,
+            89.6418,
+            41.6325
           ],
           "status": "OK",
-          "wall_sec": 0.47
+          "wall_sec": 0.58
         }
       ]
     },
@@ -105,24 +105,24 @@
           "config_name": "C4",
           "total_orders": 60,
           "orders_generated": 60,
-          "delivered": 7,
-          "on_time": 7,
-          "late": 0,
-          "missed": 53,
-          "delivery_rate": 11.666666666666666,
-          "on_time_rate": 100.0,
-          "total_reward": 186.0491,
-          "total_movecost": -2.0862,
-          "net_reward": 183.9629,
-          "elapsed_sec": 0.941,
+          "delivered": 29,
+          "on_time": 25,
+          "late": 4,
+          "missed": 31,
+          "delivery_rate": 48.333333333333336,
+          "on_time_rate": 86.20689655172414,
+          "total_reward": 574.9256,
+          "total_movecost": -6.8884,
+          "net_reward": 568.0372,
+          "elapsed_sec": 1.4135,
           "shipper_rewards": [
-            113.087,
-            44.5097,
-            10.2401,
-            16.126
+            306.559,
+            145.0592,
+            71.0336,
+            45.3854
           ],
           "status": "OK",
-          "wall_sec": 0.96
+          "wall_sec": 1.42
         }
       ]
     },
@@ -136,25 +136,25 @@
           "config_name": "C5",
           "total_orders": 80,
           "orders_generated": 80,
-          "delivered": 9,
-          "on_time": 8,
-          "late": 1,
-          "missed": 71,
-          "delivery_rate": 11.25,
-          "on_time_rate": 88.88888888888889,
-          "total_reward": 211.4746,
-          "total_movecost": -3.1383,
-          "net_reward": 208.3363,
-          "elapsed_sec": 1.524,
+          "delivered": 21,
+          "on_time": 19,
+          "late": 2,
+          "missed": 59,
+          "delivery_rate": 26.25,
+          "on_time_rate": 90.47619047619048,
+          "total_reward": 470.4777,
+          "total_movecost": -12.9364,
+          "net_reward": 457.5413,
+          "elapsed_sec": 4.3334,
           "shipper_rewards": [
-            32.0337,
-            31.0501,
-            93.9585,
-            51.5064,
-            -0.2125
+            77.7901,
+            46.4414,
+            288.8978,
+            -0.1913,
+            44.6033
           ],
           "status": "OK",
-          "wall_sec": 1.54
+          "wall_sec": 4.34
         }
       ]
     },
@@ -168,25 +168,25 @@
           "config_name": "C6",
           "total_orders": 100,
           "orders_generated": 100,
-          "delivered": 43,
-          "on_time": 34,
-          "late": 9,
-          "missed": 57,
-          "delivery_rate": 43.0,
-          "on_time_rate": 79.06976744186046,
-          "total_reward": 801.3393,
-          "total_movecost": -12.9988,
-          "net_reward": 788.3405,
-          "elapsed_sec": 7.7922,
+          "delivered": 25,
+          "on_time": 21,
+          "late": 4,
+          "missed": 75,
+          "delivery_rate": 25.0,
+          "on_time_rate": 84.0,
+          "total_reward": 413.8879,
+          "total_movecost": -14.8863,
+          "net_reward": 399.0016,
+          "elapsed_sec": 6.7477,
           "shipper_rewards": [
-            116.4287,
-            281.1216,
-            230.6016,
-            -0.18,
-            160.3687
+            75.6027,
+            110.5197,
+            35.5549,
+            156.3478,
+            20.9766
           ],
           "status": "OK",
-          "wall_sec": 7.79
+          "wall_sec": 6.75
         }
       ]
     }
@@ -203,135 +203,135 @@
       "missed": 2,
       "delivery_rate": 86.66666666666667,
       "on_time_rate": 100.0,
-      "total_reward": 267.575,
-      "total_movecost": -0.9032,
-      "net_reward": 266.6718,
-      "elapsed_sec": 0.1099,
+      "total_reward": 266.8704,
+      "total_movecost": -1.4782,
+      "net_reward": 265.3922,
+      "elapsed_sec": 0.1234,
       "shipper_rewards": [
-        232.5665,
-        34.1053
+        172.7253,
+        92.6669
       ],
       "status": "OK",
-      "wall_sec": 0.11
+      "wall_sec": 0.12
     },
     {
       "method": "GreedyBFS",
       "config_name": "C2",
       "total_orders": 25,
       "orders_generated": 25,
-      "delivered": 8,
-      "on_time": 7,
-      "late": 1,
-      "missed": 17,
-      "delivery_rate": 32.0,
-      "on_time_rate": 87.5,
-      "total_reward": 132.1034,
-      "total_movecost": -1.12,
-      "net_reward": 130.9834,
-      "elapsed_sec": 0.2152,
+      "delivered": 3,
+      "on_time": 3,
+      "late": 0,
+      "missed": 22,
+      "delivery_rate": 12.0,
+      "on_time_rate": 100.0,
+      "total_reward": 82.9875,
+      "total_movecost": -0.7602,
+      "net_reward": 82.2274,
+      "elapsed_sec": 0.1555,
       "shipper_rewards": [
-        108.6807,
-        22.3027
+        67.826,
+        14.4014
       ],
       "status": "OK",
-      "wall_sec": 0.22
+      "wall_sec": 0.16
     },
     {
       "method": "GreedyBFS",
       "config_name": "C3",
       "total_orders": 40,
       "orders_generated": 40,
-      "delivered": 11,
-      "on_time": 10,
-      "late": 1,
-      "missed": 29,
-      "delivery_rate": 27.5,
-      "on_time_rate": 90.9090909090909,
-      "total_reward": 278.0658,
-      "total_movecost": -2.3518,
-      "net_reward": 275.7139,
-      "elapsed_sec": 0.4664,
+      "delivered": 14,
+      "on_time": 11,
+      "late": 3,
+      "missed": 26,
+      "delivery_rate": 35.0,
+      "on_time_rate": 78.57142857142857,
+      "total_reward": 353.4977,
+      "total_movecost": -3.2122,
+      "net_reward": 350.2854,
+      "elapsed_sec": 0.5775,
       "shipper_rewards": [
-        223.1926,
-        52.9159,
-        -0.3945
+        219.0111,
+        89.6418,
+        41.6325
       ],
       "status": "OK",
-      "wall_sec": 0.47
+      "wall_sec": 0.58
     },
     {
       "method": "GreedyBFS",
       "config_name": "C4",
       "total_orders": 60,
       "orders_generated": 60,
-      "delivered": 7,
-      "on_time": 7,
-      "late": 0,
-      "missed": 53,
-      "delivery_rate": 11.666666666666666,
-      "on_time_rate": 100.0,
-      "total_reward": 186.0491,
-      "total_movecost": -2.0862,
-      "net_reward": 183.9629,
-      "elapsed_sec": 0.941,
+      "delivered": 29,
+      "on_time": 25,
+      "late": 4,
+      "missed": 31,
+      "delivery_rate": 48.333333333333336,
+      "on_time_rate": 86.20689655172414,
+      "total_reward": 574.9256,
+      "total_movecost": -6.8884,
+      "net_reward": 568.0372,
+      "elapsed_sec": 1.4135,
       "shipper_rewards": [
-        113.087,
-        44.5097,
-        10.2401,
-        16.126
+        306.559,
+        145.0592,
+        71.0336,
+        45.3854
       ],
       "status": "OK",
-      "wall_sec": 0.96
+      "wall_sec": 1.42
     },
     {
       "method": "GreedyBFS",
       "config_name": "C5",
       "total_orders": 80,
       "orders_generated": 80,
-      "delivered": 9,
-      "on_time": 8,
-      "late": 1,
-      "missed": 71,
-      "delivery_rate": 11.25,
-      "on_time_rate": 88.88888888888889,
-      "total_reward": 211.4746,
-      "total_movecost": -3.1383,
-      "net_reward": 208.3363,
-      "elapsed_sec": 1.524,
+      "delivered": 21,
+      "on_time": 19,
+      "late": 2,
+      "missed": 59,
+      "delivery_rate": 26.25,
+      "on_time_rate": 90.47619047619048,
+      "total_reward": 470.4777,
+      "total_movecost": -12.9364,
+      "net_reward": 457.5413,
+      "elapsed_sec": 4.3334,
       "shipper_rewards": [
-        32.0337,
-        31.0501,
-        93.9585,
-        51.5064,
-        -0.2125
+        77.7901,
+        46.4414,
+        288.8978,
+        -0.1913,
+        44.6033
       ],
       "status": "OK",
-      "wall_sec": 1.54
+      "wall_sec": 4.34
     },
     {
       "method": "GreedyBFS",
       "config_name": "C6",
       "total_orders": 100,
       "orders_generated": 100,
-      "delivered": 43,
-      "on_time": 34,
-      "late": 9,
-      "missed": 57,
-      "delivery_rate": 43.0,
-      "on_time_rate": 79.06976744186046,
-      "total_reward": 801.3393,
-      "total_movecost": -12.9988,
-      "net_reward": 788.3405,
-      "elapsed_sec": 7.7922,
+      "delivered": 25,
+      "on_time": 21,
+      "late": 4,
+      "missed": 75,
+      "delivery_rate": 25.0,
+      "on_time_rate": 84.0,
+      "total_reward": 413.8879,
+      "total_movecost": -14.8863,
+      "net_reward": 399.0016,
+      "elapsed_sec": 6.7477,
       "shipper_rewards": [
-        116.4287,
-        281.1216,
-        230.6016,
-        -0.18,
-        160.3687
+        75.6027,
+        110.5197,
+        35.5549,
+        156.3478,
+        20.9766
       ],
       "status": "OK",
-      "wall_sec": 7.79
+      "wall_sec": 6.75
     }
   ]
 }

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from shutil import move
 import time
-from collections import deque
+import math
+from collections import deque, defaultdict
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from env import DeliveryEnv, Order, Shipper, is_valid_cell, valid_next_pos
+from env import DeliveryEnv, Order, Shipper, is_valid_cell, valid_next_pos, manhattan, r_base
 from solvers.solver import Solver
 
 
@@ -16,12 +17,17 @@ Action = Tuple[Move, object]
 INF = 10**9
 
 MOVES: Tuple[Move, ...] = ("U", "D", "L", "R")
+ALPHA = {1: 1.0, 2: 2.0, 3: 3.0}
+BETA  = {1: 0.1, 2: 0.3, 3: 0.5}
+GAMMA = 1.0
 
-MULTI_PICKUP_RADIUS = 4
-MULTI_PICKUP_MIN_SCORE = 5.0 # chỉ pickup nếu đơn này không quá lệch route
+MULTI_PICKUP_MIN_SCORE = 10.0 # chỉ pickup nếu đơn này có score >=10
 OPPORTUNISTIC_MIN_SLACK = 5 # chỉ pickup thêm nếu deadline còn dư >= 5 timesteps
 MAX_ALLOWED_LATENESS = 5 # chỉ nhận đơn nếu ước lượng thời gian hoàn thành không quá deadline + 5 timesteps
+DELIVERY_CLUSTER_BONUS = 2 # hệ số nhân reward cho mỗi delivery nearby
 
+AVG_REWARD = 15.0
+HOTSPOT_RADIUS = 3.0 # đề cho
 
 class GreedyBFS(Solver):
     """
@@ -38,6 +44,13 @@ class GreedyBFS(Solver):
         super().__init__(env)
         self._distance_cache: Dict[Tuple[Position, Position], int] = {}
         self._next_move_cache: Dict[Tuple[Position, Position], Move] = {}
+
+        self.adaptive_radius = max(2, min(10, self.env.N // 3)) # bán kính để coi là "gần", dùng trong opportunistic pickup và delivery cluster, có thể điều chỉnh dựa trên kích cỡ map
+        
+        self.hotspot_memory: Dict[Position, float] = defaultdict(float) # lưu nhiệt độ hotspot để ổn định điểm hotspot theo thời gian, tránh nhảy lung tung
+        self.hotspot_sigma = max(1.0, self.env.N / 2)
+        self.hotspot_decay = max(1.0, self.adaptive_radius) # map càng lớn decay càng chậm, vì travel time dài hơn
+        self.last_seen_orders: set[int] = set() # để theo dõi đơn hàng mới xuất hiện, có thể dùng để cập nhật hotspot
 
     # ------------------------------------------------------------------
     # BFS utilities
@@ -133,12 +146,44 @@ class GreedyBFS(Solver):
     # ------------------------------------------------------------------
     # Policy: chọn đơn
     # ------------------------------------------------------------------
+    def _delivery_urgency(self, shipper: Shipper, order: Order, current_time):
+        """
+        Độ urgent của delivery hiện tại (cũng là slack). Urgent thấp -> giao ngay
+        Dùng để quyết định có nên nhặt thêm đơn opportunistic hay không.
+        """
+        d = self._distance(shipper.position, (order.ex, order.ey))
+        return order.et - (current_time + d)
+
+    def _delivery_cluster_bonus(self, target_order: Order, carried_orders: List[Order]) -> float:
+        """
+        Tính bonus reward nếu destination của target_order nằm gần nhiều destination khác trong bag (cùng cluster)
+        Ý tưởng: nếu có nhiều đơn giao gần nhau thì sẽ tiết kiệm được nhiều thời gian di chuyển -> tăng net reward
+        Heuristic: local cluster density.
+        """
+        tx, ty = target_order.ex, target_order.ey
+        nearby = 0
+
+        for other in carried_orders:
+            if other.id == target_order.id:
+                continue
+            
+            d = self._distance((tx, ty), (other.ex, other.ey))
+
+            if d <= self.adaptive_radius:
+                nearby += 1
+
+        return nearby * DELIVERY_CLUSTER_BONUS
+    
     def _select_delivery(self, shipper: Shipper, orders: Dict[int, Order], current_time: int) -> Optional[Order]:
         """
         Nếu shipper đang mang hàng thì chọn đơn đang mang để đi giao.
         Delivery heuristic: ưu tiên đơn có slack nhỏ nhất (thời gian còn lại trước deadline)
         Slack càng nhỏ = đơn sắp trễ, slack âm thì chắc chắn trễ
         --> giảm starvation cho đơn có deadline sớm và tránh chọn đơn có deadline xa trước nếu đang có đơn sắp trễ trong bag.
+
+        Cải tiến bước tiếp theo (delivery clustering): Delivery heuristic: 
+        - slack nhỏ nhất
+        - trong số các đơn có slack gần nhau thì ưu tiên đơn có nhiều đơn giao gần đó trong bag (cùng cluster) để tiết kiệm thời gian di chuyển.
         """
         carried_orders = [
             orders[oid]
@@ -148,101 +193,92 @@ class GreedyBFS(Solver):
         if not carried_orders:
             return None
         
-        # ưu tiên minimum slack > gần
-        def slack(order):
-            """Ước lượng thời gian còn lại trước deadline."""
+        candidates = []
+        
+        for order in carried_orders:
             d = self._distance(shipper.position, (order.ex, order.ey))
-            return order.et - (current_time + d)
+            if d >= INF: 
+                continue
 
-        return min(
-            carried_orders,
-            key=lambda order: (
-                slack(order), # urgent hơn
-                self._distance(shipper.position, (order.ex, order.ey)), # đích giao gần nhất
-                order.et, # deadline sớm hơn
-                -order.p, # priority cao hơn
-                order.id, # id nhỏ hơn
-            ),
+            # ưu tiên minimum slack > gần
+            slack = order.et - (current_time + d)
+
+            # delivery clustering bonus
+            cluster_bonus = self._delivery_cluster_bonus(order, carried_orders)
+
+            # heuristic deliver score: kết hợp giữa slack, khoảng cách đến destination, priority và cluster bonus
+            delivery_score = (
+                -2.0 * slack # urgent hơn
+                - 1.0 * d # đích giao gần hơn thì tốt hơn
+                + cluster_bonus # nhiều đơn giao gần đó trong bag thì tốt hơn
+                + 0.5 * order.p # priority cao hơn thì tốt hơn, bonus nhẹ
+            )
+
+            candidates.append((delivery_score, order))
+
+        if not candidates:
+            return None
+        
+        candidates.sort(
+            key=lambda x: (
+                -x[0],      # maximize score
+                x[1].et,    # deadline sớm hơn
+                x[1].id,    # id nhỏ hơn
+            )
         )
-    
-    def _delivery_urgency(self, shipper: Shipper, order: Order, current_time):
-        """
-        Độ urgent của delivery hiện tại (cũng là slack). Urgent thấp -> giao ngay
-        Dùng để quyết định có nên nhặt thêm đơn opportunistic hay không.
-        """
-        d = self._distance(shipper.position, (order.ex, order.ey))
-        return order.et - (current_time + d)
-    
-    def _estimate_base_reward(self, order: Order) -> float:
-        """
-        Ước lượng reward cơ bản của đơn hàng. Reward tăng theo trọng lượng và priority
-        Đây không phải reward thực tế vì còn phụ thuộc vào thời gian hoàn thành, nhưng dùng để so sánh giữa các đơn với nhau khi chọn pickup.
-        """
-        w = order.w
-        if w <= 0.2:
-            base = 4
-        elif w <= 3:
-            base = 10
-        elif w <= 10:
-            base = 15
-        elif w <= 30:
-            base = 20
-        else:
-            base = 30
 
-        priority_multiplier = {
-            1: 1.0,
-            2: 2.0,
-            3: 3.0,
-        }
-
-        return base * priority_multiplier[order.p]
+        return candidates[0][1]
     
-    def _pickup_score(self, shipper: Shipper, order: Order, current_time) -> float:
+    def _estimate_order_score(self, sh: Shipper, order: Order, orders: Dict[int, Order], current_time: int, total_time: int) -> float:
         """
-        Heuristic utility cho pickup candidate.
-        Hiện tại: score = estimated_reward - movement_cost - lateness_cost.
+        Ước lượng score của đơn hàng để so sánh giữa các đơn khi chọn pickup, tính theo đúng công thức đề bài.
+        Score cao hơn nghĩa là đơn hàng tốt hơn để pickup.
+        Hiện tại: score = estimated_reward - movement_cost.
         Đây là local greedy utility approximation. Không tối ưu toàn cục, nhưng giúp policy:
         - tránh đơn quá xa
         - tránh đơn gần như chắc chắn trễ
         - ưu tiên đơn có reward cao hơn (nặng hơn, priority cao hơn)
         """
-        shipper_pos = shipper.position
-        pickup_pos = (order.sx, order.sy)
-        delivery_pos = (order.ex, order.ey)
+        # ước tính khoảng cách
+        d1 = manhattan(sh.r, sh.c, order.sx, order.sy)
+        d2 = manhattan(order.sx, order.sy, order.ex, order.ey)
 
-        # khoảng shipper -> pickup
-        d_pickup = self._distance(shipper_pos, pickup_pos)
-        # khoảng cách pickup -> delivery
-        d_delivery = self._distance(pickup_pos, delivery_pos)
+        travel_time = d1 + d2
+        est_delivery_time = current_time + travel_time
 
-        if d_pickup == INF or d_delivery == INF:
-            return -INF
-        
-        # tổng quãng đường cần đi để hoàn thành đơn
-        trip_distance = d_pickup + d_delivery
-        # ước lượng thời gian hoàn thành đơn 
-        eta = current_time + trip_distance
-        # ước lượng reward
-        reward = self._estimate_base_reward(order)
-        # phần trễ deadline (nếu có)
-        lateness = max(0, eta - order.et)
-        # regularization - xấp xỉ movement cost
-        movement_penalty = 0.05 * trip_distance # nên gán đúng move cost trong env, 0.05 là đang tự chọn
-        # regularization - deadline penalty, phạt rất mạnh nếu trễ
-        lateness_penalty = 2.0 * lateness
+        # ước tính reward cơ bản
+        rb = r_base(order.w)
+        if est_delivery_time <= order.et:
+            bonus = max(
+                0.0,
+                (order.et - est_delivery_time) / max(order.et, 1)
+            )
+            reward = ALPHA[order.p] * rb * (1.0 + bonus)
 
-        # final utility score
-        score = reward - movement_penalty - lateness_penalty
+        else:
+            factor = max(
+                0.0,
+                1.0 - (est_delivery_time - order.et) / max(total_time, 1)
+            )
+            reward = BETA[order.p] * rb * factor
 
-        return score
+        # movement cost estimate
+        carried = sum(orders[oid].w for oid in sh.bag if oid in orders)
+
+        move_penalty = (
+            travel_time * 0.01 
+            * (1.0 + GAMMA * carried / max(sh.W_max, 1.0))
+        )
+
+        return reward - move_penalty
 
     def _select_pickup(
         self,
         shipper: Shipper,
         orders: Dict[int, Order],
         reserved_order_ids: set[int],
-        current_time: int
+        current_time: int,
+        total_time: int,
     ) -> Optional[Order]:
         """
         Chọn đơn chưa nhặt có utility tốt và shipper còn khả năng chở.
@@ -258,7 +294,6 @@ class GreedyBFS(Solver):
         """
 
         candidates: List[tuple[float, Order]] = []
-        # candidates: List[Order] = []
 
         for order in orders.values():
             if order.picked or order.delivered:
@@ -275,14 +310,12 @@ class GreedyBFS(Solver):
 
             # ETA đơn giản để reject đơn chắc chắn trễ, xem lại
             eta = current_time + d_pickup + d_delivery
-            if eta > order.et + MAX_ALLOWED_LATENESS:
+            if eta > order.et + self.adaptive_radius:
                 continue
 
-            score = self._pickup_score(shipper, order, current_time)
+            score = self._estimate_order_score(shipper, order, orders, current_time, total_time)
 
             candidates.append((score, order))
-
-            # candidates.append(order)
 
         if not candidates:
             return None
@@ -304,6 +337,7 @@ class GreedyBFS(Solver):
         orders: Dict[int, Order],
         reserved_order_ids: set[int],
         current_time: int,
+        total_time: int,
         primary_delivery: Order,  
     ) -> Optional[Order]:
         """
@@ -370,11 +404,11 @@ class GreedyBFS(Solver):
             effective_detour = detour + 0.3 * future_delivery_cost
             
             # nếu route lệch quá nhiều thì không nhặt
-            if effective_detour > MULTI_PICKUP_RADIUS:
+            if effective_detour > self.adaptive_radius:
                 continue
 
-            # nếu utility không đủ tốt thì không nhặt
-            score = self._pickup_score(shipper, order, current_time)
+            # nếu score không đủ tốt thì không nhặt
+            score = self._estimate_order_score(shipper, order, orders, current_time, total_time)
             if score < MULTI_PICKUP_MIN_SCORE:
                 continue
 
@@ -392,6 +426,91 @@ class GreedyBFS(Solver):
         ))
 
         return candidates[0][1]
+    
+    # ------------------------------------------------------------------
+    # Ý tưởng: xử lý hotspot
+    # ------------------------------------------------------------------
+    def _update_hotspots(
+        self,
+        orders: Dict[int, Order]
+    ) -> None:
+        """
+        Online hotspot estimation.
+        Hotspot = vùng có mật độ pickup cao gần đây.
+        Mỗi order mới xuất hiện sẽ tăng heat quanh pickup region.
+        Heat decay dần theo thời gian để thích nghi với surge động.
+        """
+        for pos in list(self.hotspot_memory.keys()):
+            self.hotspot_memory[pos] *= 0.8 # số chọn bừa, đây là heat giảm dần theo thời gian
+
+            if self.hotspot_memory[pos] < 0.01:
+                del self.hotspot_memory[pos] # heat nhỏ quá thì coi như đây kcon là hotspot nữa
+
+        for order in orders.values():
+            if order.picked or order.delivered:
+                continue
+
+            center = (order.sx, order.sy)
+
+            self.hotspot_memory[center] += 1.0 # cách nghĩ bên dưới phức tạp quá, tăng heat tại pickup center là đủ
+
+            # for dr in range(-self.adaptive_radius, self.adaptive_radius +1):
+            #     for dc in range(-self.adaptive_radius, self.adaptive_radius +1):
+            #         # để tránh update Gaussian influence lên toàn bộ map, chỉ update trong khoảng cách ảnh hưởng mà đề cho là manhattan <= 3
+            #         r = center[0] + dr
+            #         c = center[1] + dc
+            #         if not is_valid_cell((r, c), self.grid):
+            #             continue
+            #         d = abs(dr) + abs(dc)
+            #         if d > self.adaptive_radius:
+            #             continue
+            #         influence = math.exp(
+            #             -(d ** 2) / (2 * self.hotspot_sigma ** 2)
+            #         )
+            #         self.hotspot_memory[(r, c)] = (
+            #             self.hotspot_memory.get((r, c), 0.0)
+            #             + influence
+            #         )
+
+    def _select_hotspot(self, shipper: Shipper, orders: Dict[int, Order]) -> Optional[Position]:
+        """
+        Chọn hotspot có expected future net reward tốt nhất.
+        Ý tưởng:
+        - hotspot value = expected future reward density
+        - penalty theo movement cost để tránh chase hotspot quá xa
+        """ 
+        if not self.hotspot_memory:
+            return None
+        
+        best_score = -INF
+        best_pos = None
+
+        carried_weight = sum(
+            orders[oid].w
+            for oid in shipper.bag
+            if oid in orders
+        )
+
+        for pos, hotspot_value in self.hotspot_memory.items():
+            d = self._distance(shipper.position, pos)
+            if d >= INF:
+                continue
+
+            # expected future reward
+            expected_reward = hotspot_value * AVG_REWARD # vì đơn tương lai chưa được sinh nên chưa rõ reward của đơn
+
+            # estimated movement cost
+            move_penalty = (
+                d * 0.01
+                * (1.0 + GAMMA * carried_weight / max(shipper.W_max, 1.0))
+            )
+
+            score = expected_reward - move_penalty
+            if score > best_score:
+                best_score = score
+                best_pos = pos
+
+        return best_pos 
 
     # ------------------------------------------------------------------
     # Policy: tạo action
@@ -426,6 +545,9 @@ class GreedyBFS(Solver):
         actions: Dict[int, Action] = {}
         reserved_pickups: set[int] = set()
         current_time = obs["t"]
+        total_time = obs["T"]
+
+        self._update_hotspots(orders) # cập nhật hotspot trước khi quyết định action
 
         for shipper in sorted(shippers, key=lambda s: s.id):
             delivery_order = self._select_delivery(shipper, orders, current_time)
@@ -434,7 +556,7 @@ class GreedyBFS(Solver):
 
                 # chỉ opportunistic pickup nếu còn đủ xa deadline
                 if urgency >= OPPORTUNISTIC_MIN_SLACK:
-                    opportunistic = self._select_opportunistic_pickup(shipper, orders, reserved_pickups, current_time, delivery_order)
+                    opportunistic = self._select_opportunistic_pickup(shipper, orders, reserved_pickups, current_time, total_time, delivery_order)
                     if opportunistic is not None:
                         reserved_pickups.add(opportunistic.id)
                         actions[shipper.id] = self._pickup_action(shipper, opportunistic)
@@ -444,7 +566,7 @@ class GreedyBFS(Solver):
                 continue
 
             # normal pickup
-            pickup_order = self._select_pickup(shipper, orders, reserved_pickups, current_time)
+            pickup_order = self._select_pickup(shipper, orders, reserved_pickups, current_time, total_time)
             # pickup_order = self._select_pickup(shipper, orders, reserved_pickups)
             if pickup_order is not None:
                 reserved_pickups.add(pickup_order.id)
@@ -452,7 +574,15 @@ class GreedyBFS(Solver):
                 continue
 
             # idle
-            actions[shipper.id] = ("S", 0)
+            # actions[shipper.id] = ("S", 0)
+
+            # hotspot-aware idle repositioning:
+            hotspot = self._select_hotspot(shipper, orders)
+            if hotspot is not None:
+                move, _ = self._move_towards(shipper, hotspot)
+                actions[shipper.id] = (move, 0)
+            else:
+                actions[shipper.id] = ("S", 0)
 
         return actions
 
