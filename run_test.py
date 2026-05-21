@@ -101,7 +101,6 @@ def main():
     parser = argparse.ArgumentParser(description="Online MAPD graph/RL grader")
     parser.add_argument("--config", required=True, help="Đường dẫn file test_config.txt")
     parser.add_argument("--out", default="results", help="Thư mục lưu kết quả")
-    parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--method", default="all", help="Phương pháp chạy: 'all' để chạy tất cả, hoặc tên phương pháp cụ thể (GreedyBFS, VRPOrToolsSolver, ACOSolver, MAPDCBSSolver)")
     args = parser.parse_args()
 
@@ -142,7 +141,7 @@ def main():
 
         print(f"[{name}] N={cfg['N']} C={cfg['C']} G={cfg['G']} T={cfg['T']}  (còn {remaining / 60:.1f} phút)")
         print("  Chế độ online: chỉ G được biết trước; từng đơn được sinh/reveal trong step t.")
-        config_seed = _stable_config_seed(str(name), args.seed)
+        config_seed = _stable_config_seed(str(name), cfg['base_seed'])
 
         cfg_results = []
         for solver_name, solver_cls in solver_classes:
@@ -213,7 +212,7 @@ def main():
 
     summary = {
         "config_file": args.config,
-        "seed": args.seed,
+        "seed": cfg['base_seed'],
         "online_generation": True,
         "total_elapsed": round(total_elapsed, 2),
         "total_score_by_method": total_score_by_method,
