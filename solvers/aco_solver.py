@@ -30,11 +30,18 @@ class ACOSolver(Solver):
 
 
     def __init__(self, env: DeliveryEnv):
-        super().__init__(env)
-        self.N = self.cfg["N"]
-        self.T = self.cfg["T"]
-        self.C = self.cfg["C"]
        
+        env.cfg = {"N": env.N, "T": env.T, "C": env.C, "G": env.G}
+            
+        # 2. Bây giờ gọi super() sẽ an toàn
+        super().__init__(env)
+        
+        # 3. Sau đó lấy các tham số cần thiết
+        self.N = env.N
+        self.T = env.T
+        self.C = env.C
+        self.grid = env.grid
+        
         self.rng = random.Random(SEED + 20)
        
         # --- Tham số ACO Gốc ---
@@ -114,10 +121,17 @@ class ACOSolver(Solver):
 
     def _assign_orders_aco(self, obs: dict):
         t = obs["t"]
-        pending = [o for o in obs["orders"].values() if not o.picked]
+        # Chỉ lấy những đơn CÒN KỊP GIỜ (t + dist_to_pickup + dist_to_drop < et)
+        # Loại bỏ các đơn "chết" ngay từ vòng gửi xe để đàn kiến không phí công tính toán
+        pending = []
+        for o in obs["orders"].values():
+            if not o.picked:
+                dist_est = manhattan(0, 0, self.N, self.N) # Khoảng cách tối đa ước tính
+                if t + dist_est < o.et: 
+                    pending.append(o)
+
         free_shippers = [sh for sh in obs["shippers"] if self.agents[sh.id].phase == "idle"]
-
-
+        if not free_shippers or not pending: return
         if not free_shippers or not pending: return
 
 
@@ -199,13 +213,83 @@ class ACOSolver(Solver):
         # 2. Kế hoạch dự phòng khi xe rảnh việc
         if agent.target_oid == -1:
             if sh.bag:
-                urgent_oid = min(sh.bag, key=lambda oid: obs["orders"][oid].et)
-                agent.target_oid = urgent_oid
+                t_curr = obs["t"]
+                best_oid = None
+                max_score = -float('inf')
+                
+                for oid in sh.bag:
+                    o = obs["orders"][oid]
+                    dist = manhattan(sh.r, sh.c, o.ex, o.ey)
+                    
+                    # Kiểm tra xem chạy tới giao thì có kịp deadline không
+                    is_on_time = (t_curr + dist <= o.et)
+                    
+                    if is_on_time:
+                        # Kịp giờ: Ưu tiên đơn giá trị cao (priority, weight) và ở GẦN (chia cho dist)
+                        score = (o.p * 15 + o.w) / (dist + 1)
+                    else:
+                        # Đã trễ giờ: Bị phạt điểm nặng (-1000)
+                        # Lúc này trừ thêm dist -> Bắt buộc xe phải chọn đơn ở GẦN NHẤT để xả nhanh nhất
+                        score = -1000 - dist
+                        
+                    if score > max_score:
+                        max_score = score
+                        best_oid = oid
+                
+                agent.target_oid = best_oid
                 agent.phase = "deliver"
+                agent.stuck_timer = 0
             else:
-                return ("S", 0)
+                # XE RỖNG BALO: KHÔNG ĐỨNG IM! Tự chộp đơn ngay lập tức
+                
+                # --- CẢI TIẾN 7.1: BẢNG PHONG THẦN (CHỐNG BẦY ĐÀN) ---
+                claimed_by_others = {self.agents[other.id].target_oid for other in obs["shippers"] if other.id != sid}
+                
+                pending = []
+                for o in obs["orders"].values():
+                    # FIX LỖI CHÍ MẠNG 1: Phải kiểm tra xem xe CÓ ĐỦ SỨC chở đơn này không! (o.w <= sh.W_max)
+                    if not o.picked and o.id not in claimed_by_others and o.w <= sh.W_max:
+                        
+                        # --- CẢI TIẾN 7.2: TẦM NHÌN SINH TỬ ---
+                        dist_to_pickup = manhattan(sh.r, sh.c, o.sx, o.sy)
+                        dist_to_dropoff = manhattan(o.sx, o.sy, o.ex, o.ey)
+                        
+                        if obs["t"] + dist_to_pickup + dist_to_dropoff <= self.T:
+                            pending.append((o, dist_to_pickup, dist_to_dropoff))
 
-
+                # Chọn đơn ngon nhất trong số các đơn khả thi và độc quyền
+                if pending:
+                    best_o = None
+                    best_score = -float('inf')
+                    for o, dist_pick, dist_drop in pending:
+                        
+                        # FIX LỖI 2: Tự định giá thực dụng ROI thay vì dùng _heuristic bị ảo tưởng
+                        time_margin = o.et - (obs["t"] + dist_pick + dist_drop)
+                        
+                        if time_margin >= 0:
+                            # Nếu giao kịp: Ưu tiên đơn điểm cao (Priority, Weight) và cực kỳ ưu tiên GẦN XE
+                            score = (o.p * 20 + o.w) / (dist_pick + 1)
+                        else:
+                            # Nếu đã trễ: Bóp nghẹt giá trị xuống mức siêu thấp để ưu tiên cứu các đơn mới
+                            score = (o.p * 5) / (dist_pick + 10)
+                            
+                        # Trừ đi tiền xăng chạy đến lấy
+                        score -= (dist_pick * 0.05)
+                        
+                        if score > best_score:
+                            best_score = score
+                            best_o = o
+                    
+                    if best_o:
+                        agent.target_oid = best_o.id
+                        agent.phase = "pickup"
+                        agent.stuck_timer = 0
+                    else:
+                        return ("S", 0)
+                else:
+                    return ("S", 0)
+        
+        
         order = obs["orders"][agent.target_oid]
         goal = (order.sx, order.sy) if agent.phase == "pickup" else (order.ex, order.ey)
        
