@@ -121,17 +121,10 @@ class ACOSolver(Solver):
 
     def _assign_orders_aco(self, obs: dict):
         t = obs["t"]
-        # Chỉ lấy những đơn CÒN KỊP GIỜ (t + dist_to_pickup + dist_to_drop < et)
-        # Loại bỏ các đơn "chết" ngay từ vòng gửi xe để đàn kiến không phí công tính toán
-        pending = []
-        for o in obs["orders"].values():
-            if not o.picked:
-                dist_est = manhattan(0, 0, self.N, self.N) # Khoảng cách tối đa ước tính
-                if t + dist_est < o.et: 
-                    pending.append(o)
-
+        pending = [o for o in obs["orders"].values() if not o.picked]
         free_shippers = [sh for sh in obs["shippers"] if self.agents[sh.id].phase == "idle"]
-        if not free_shippers or not pending: return
+
+
         if not free_shippers or not pending: return
 
 
