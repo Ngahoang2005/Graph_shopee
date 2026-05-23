@@ -8,23 +8,23 @@
       "config_name": "C3",
       "total_orders": 40,
       "orders_generated": 40,
-      "delivered": 25,
-      "on_time": 24,
-      "late": 1,
-      "missed": 15,
-      "delivery_rate": 62.5,
-      "on_time_rate": 96.0,
-      "total_reward": 716.801,
-      "total_movecost": -4.037,
-      "net_reward": 712.764,
-      "elapsed_sec": 1.7199,
+      "delivered": 35,
+      "on_time": 29,
+      "late": 6,
+      "missed": 5,
+      "delivery_rate": 87.5,
+      "on_time_rate": 82.85714285714286,
+      "total_reward": 789.1192,
+      "total_movecost": -7.0305,
+      "net_reward": 782.0887,
+      "elapsed_sec": 16.3978,
       "shipper_rewards": [
-        242.3055,
-        433.4161,
-        37.0423
+        281.2874,
+        178.4804,
+        322.3208
       ],
       "status": "OK",
-      "wall_sec": 1.74
+      "wall_sec": 16.4
     }
   ]
 }

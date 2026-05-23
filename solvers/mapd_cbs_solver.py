@@ -139,7 +139,7 @@ class MAPDCBSSolver(Solver):
         self.grid = env.grid
         self.t = env.t
 
-        self.max_plan_depth = max(10, self.N) # planning horizon, planner chỉ nhìn max_plan_depth timestep tương lai
+        self.max_plan_depth = max(20, 2 * self.N) # planning horizon, planner chỉ nhìn max_plan_depth timestep tương lai
         self._distance_cache: Dict[Tuple[Position, Position], int] = {}
         self._cbs_counter = 0
 
@@ -188,6 +188,10 @@ class MAPDCBSSolver(Solver):
 
         self._distance_cache[key] = INF
         return INF
+    
+    def _heuristic(self, pos: Position, goal: Position) -> int:
+        """Manhattan heuristic."""
+        return abs(pos[0] - goal[0]) + abs(pos[1] - goal[1])
 
     # ------------------------------------------------------------------
     # Policy: chọn đơn, greedy task allocation
@@ -358,36 +362,47 @@ class MAPDCBSSolver(Solver):
             
         return False
 
-    def _detect_conflict(self, paths: Dict[int, List[Position]]) -> Optional[Conflict]:
+    def _detect_all_conflict(self, paths: Dict[int, List[Position]], window: int = 12) -> List[Conflict]:
         """
         High-level conflict detector.
-        Sau khi tất cả agents được plan độc lập, CBS sẽ kiểm tra conflicts giữa các paths:
+        Sau khi tất cả agents được plan path tương lai giả lập 1 cách độc lập, CBS sẽ kiểm tra conflicts trong tương lai giữa các paths:
         1. Vertex conflict: 2 agents cùng ở 1 ô trong cùng timestep
         2. Edge conflict: 2 agents hoán đổi vị trí cho nhau trong cùng timestep
         Nếu phát hiện conflict:   
         -> CBS branching: tạo 2 child nodes với constraints khác nhau.
-        """
-        agents = list(paths.keys())
-        max_len = max(len(p) for p in paths.values())
 
-        for t in range(max_len):
+        --> ver 2 cải tiến: tạo danh sách tất cả conflict đang tồn tại 
+        thay vì trả về ngay conflict đầu tiên tìm được.
+        -> Phục vụ local conflict component detection.
+        """
+        # danh sách chứa tất cả conflict
+        conflicts = []
+        agents = list(paths.keys())
+        if not agents:
+            return conflicts
+        
+        max_future_timestep = max(window, max(len(p) for p in paths.values()))
+        # max_future_timestep = max(len(p) for p in paths.values())
+
+        for t in range(max_future_timestep):
             # kiểm tra sự tồn tại của vertex conflicts
             occupied = {}
             for a in agents:
                 path = paths[a] # lấy path của agent a
-                if t >= len(path):
-                    continue
-                pos = path[t] # lấy vị trí trong path tại timestep t
+                pos = path[t] if t < len(path) else path[-1] # lấy vị trí trong path tại timestep t
 
                 if pos in occupied: # nếu vị trí này đã occupied thì thêm conflict đỉnh
-                    return Conflict(
-                        kind="vertex",
-                        a1=occupied[pos],
-                        a2=a,
-                        time=t,
-                        cell=pos
+                    conflicts.append(
+                        Conflict(
+                            kind="vertex",
+                            a1=occupied[pos],
+                            a2=a,
+                            time=t,
+                            cell=pos
+                        )
                     )
-                occupied[pos] = a # nếu vị trí này chưa occupied thì bây giờ occupied
+                else:
+                    occupied[pos] = a # nếu vị trí này chưa occupied thì bây giờ occupied
 
             # kiểm tra sự tồn tại edge conflicts
             for i in range(len(agents)):
@@ -405,86 +420,139 @@ class MAPDCBSSolver(Solver):
                     curr2 = p2[t]
 
                     if prev1==curr2 and prev2 == curr1:
-                        return Conflict(
-                            kind="edge",
-                            a1=a1,
-                            a2=a2,
-                            time=t,
-                            edge=((prev1), (curr1))
+                        conflicts.append(
+                            Conflict(
+                                kind="edge",
+                                a1=a1,
+                                a2=a2,
+                                time=t,
+                                edge=((prev1), (curr1))
+                            )
                         )
-        return None
+        return conflicts
+    
+    def _build_conflict_components(self, conflicts: List[Conflict]) -> List[Set[int]]:
+        """
+        Xây conflict graph, thể hiện rõ từng thành phần local conflict components.
+        E.g.: Conflicts A-B, B-C, D-E => [{A, B, C}, {D, E}]
+        """
+        graph = defaultdict(set)
+        # vẽ cạnh tương ứng với mối quan hệ conflict
+        for c in conflicts:
+            graph[c.a1].add(c.a2)
+            graph[c.a2].add(c.a1)
+
+        # duyệt từng đỉnh/agent = DFS
+        visited = set()
+        components = []
+        for agent in graph:
+            if agent in visited:
+                continue
+            comp = set()
+
+            q = deque([agent])
+            visited.add(agent)
+            while q:
+                u = q.popleft()
+                comp.add(u)
+                for v in graph[u]:
+                    if v not in visited:
+                        visited.add(v)
+                        q.append(v)
+
+            components.append(comp)
+        return components
     
     # ------------------------------------------------------------------
-    # Thuật toán path planning ở low-level: Space-time BFS
+    # Thuật toán path planning ở low-level: Space-time (weighted) A* 
+    # --> tạo các candidate path của tương lai giả lập
     # ------------------------------------------------------------------
-    def _space_time_bfs(
+    def _space_time_astar(
         self,
         agent_id: int,
         start: Position,
         goal: Position,
         constraints: List[Constraint]
-    ) -> List[Position]:
+    ) -> Optional[List[Position]]:
         """
-        CBS low-level planner.
-        BFS phải tìm path:
-        - tránh vật cản
-        - tránh vi phạm constraints
-        Wait action (S) cực kỳ quan trọng: nhiều conflicts có thể resolve chỉ bằng việc đợi vài timestep.
-        Path được padding tới planning horizon giúp detect future conflicts chính xác hơn.
+        Space-Time A* low-level planner cho CBS
+        State: (row, col, timestep)
+        Cost: g = timestep
+        Heuristic: Manhattan distance giữa start và goal.
         """
         start_state: SpaceTimeState = (start[0], start[1], 0)
-        q = deque([start_state])
+
+        # priority queue: (f, g, state)
+        open_heap = []
+
+        start_h = self._heuristic(start, goal)
+
+        heapq.heappush(open_heap, (start_h, 0, start_state))
 
         parent: Dict[
-            SpaceTimeState, 
-            Optional[SpaceTimeState]
+            SpaceTimeState, Optional[SpaceTimeState]
         ] = {start_state: None}
-        found = None
 
-        while q:
-            r, c, t, = q.popleft()
+        g_score: Dict[SpaceTimeState, int] = {start_state: None}
+        found = None
+        while open_heap:
+            _, g, current = heapq.heappop(open_heap)
+            r, c, t = current
             current_pos = (r, c)
-            if current_pos == goal and t>0:
-                found = (r, c, t)
+
+            # goal reached
+            if current_pos == goal and t > 0:
+                found = current
                 break
+
+            # planning horizon
             if t >= self.max_plan_depth:
                 continue
 
             candidates = list(self._neighbors(current_pos))
+
             # WAIT action
             candidates.append(("S", current_pos))
-
             for _, nxt in candidates:
                 nr, nc = nxt
-                nt = t + 1
-                # chỉ tuân theo constraints của node hiện tại
+                nt = t+1
+                # constraint check
                 if self._violates_constraint(agent_id, current_pos, nxt, nt, constraints):
                     continue
 
-                state = (nr, nc, nt)
-                if state in parent:
+                neighbor_state = (nr, nc, nt)
+
+                # movement cost
+                ng = g + 1
+
+                # IMPORTANT: chỉ update nếu tìm được path tốt hơn
+                if ng >= g_score.get(neighbor_state, float("inf")):
                     continue
 
-                parent[state] = (r, c, t)
-                q.append(state)
+                g_score[neighbor_state] = ng
+                h = self._heuristic(nxt, goal)
+                f = ng + 1.2 * h # weighted A*, w > 1 để tăng speed
+                parent[neighbor_state] = current
+                heapq.heappush(open_heap, (f, ng, neighbor_state))
 
+        # no solution
         if found is None:
-            # không tìm được path conflict-free thì đứng yên
-            return [start]
+            return None
         
+        # reconstruct path
         path = []
         cur = found
         while cur is not None:
             rr, cc, _ = cur
             path.append((rr, cc))
             cur = parent[cur]
-        
+
         path.reverse()
         return path
 
     # ------------------------------------------------------------------
     # Path planning - CBS
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------    
     def _plan_paths(
         self,
         shippers: List[Shipper],
@@ -493,14 +561,13 @@ class MAPDCBSSolver(Solver):
         replanning_agents: Optional[Set[int]] = None
     ) -> Dict[int, PlannedPath]:
         """
-        Plan đường đi cho tất cả shipper:
+        Plan đường đi tập shipper:
         1. Detect conflict
         2. Nếu conflict-free: return solution
         3. Nếu phát hiện conflict:
         - Branching thành 2 child node
         - Mỗi child thêm constraints cho 1 agent
         4. Replan chỉ cho agent bị ảnh hưởng
-        Planner này chỉ dùng cho timestep hiện tại vì đang làm rolling-horizon.
         """
         # khởi tạo, root node không có constraints, agents plan độc lập
         root_constraints = []
@@ -524,12 +591,14 @@ class MAPDCBSSolver(Solver):
                 if target is None:
                     path = [shipper.position] # đứng yên
                 else:
-                    path = self._space_time_bfs(
+                    path = self._space_time_astar(
                         shipper.id,
                         shipper.position,
                         target,
                         root_constraints
                     )
+                    if path is None:
+                        path = [shipper.position]
             
             root_paths[shipper.id] = path
             total_cost += (len(path) - 1)
@@ -551,10 +620,10 @@ class MAPDCBSSolver(Solver):
                 break
             # best-first search, 2 dòng dưới đang có độ phức tạp O(nlogn), có thể cải tiến = dùng heap
             _, _, node = heapq.heappop(open_list)
-            conflict = self._detect_conflict(node.paths)
+            conflicts = self._detect_all_conflict(node.paths)
 
-            # nếu tìm được conflict-free solution
-            if conflict is None:
+            # nếu tìm được conflict-free solution -> terminate, trả về kết quả hiện tại đã conflict-free
+            if not conflicts:
                 result = {}
                 for shipper in shippers:
                     result[shipper.id] = PlannedPath(
@@ -564,10 +633,10 @@ class MAPDCBSSolver(Solver):
                     )
                 return result
             
+            conflict = conflicts[0] # chỉ chọn conflict đầu tiên để resolve
             # CBS branching
             for constrained_agent in [conflict.a1, conflict.a2]: # binary branching: CBS chia thành 2 child node
                 child_constraints = list(node.constraints)
-
                 # thêm constraint
                 if conflict.kind  == "vertex": # conflict đỉnh
                     child_constraints.append(
@@ -603,7 +672,7 @@ class MAPDCBSSolver(Solver):
                 if target is None:
                     new_path = [shipper.position]
                 else:
-                    new_path = self._space_time_bfs(
+                    new_path = self._space_time_astar(
                         shipper.id, shipper.position, target, child_constraints
                     )
                 if new_path is None:
@@ -618,11 +687,48 @@ class MAPDCBSSolver(Solver):
                     cost=child_cost
                 )
 
-                heapq.heappush(open_list, (child.cost, self._cbs_counter, child))
+                heapq.heappush(open_list, (child.cost, self._cbs_counter, child)) # expand node có cost nhỏ nhất
                 self._cbs_counter += 1
 
         # fallback
-        return existing_paths
+        # nếu CBS fail thì giữ nguyên path cũ nếu có, còn không thì đứng yên
+        result = {}
+        for shipper in shippers:
+            sid = shipper.id
+
+            if (
+                existing_paths is not None
+                and sid in existing_paths
+            ):
+                path = existing_paths[sid]
+            else:
+                path = [shipper.position]
+
+            result[sid] = PlannedPath(
+                shipper_id=sid,
+                path=path,
+                target=targets.get(sid)
+            )
+        return result
+    
+    def _solve_component_cbs(
+        self,
+        component_agents: List[Shipper],
+        targets: Dict[int, Position],
+        existing_paths: Dict[int, List[Position]]
+    ) -> Dict[int, List[Position]]:
+        """Chạy CBS local cho 1 conflict component."""
+        local_result = self._plan_paths(
+            shippers=component_agents,
+            targets=targets,
+            existing_paths=existing_paths,
+            replanning_agents=set(s.id for s in component_agents)
+        )
+
+        result = {}
+        for sid, plan in local_result.items():
+            result[sid] = plan.path
+        return result
     
     def _path_to_move(self, current: Position, nxt: Position) -> Move:
         """Chuyển đổi path thành move từng bước."""
@@ -638,11 +744,7 @@ class MAPDCBSSolver(Solver):
             return "R"
         return "S"
     
-    def _advance_path(
-        self,
-        shipper_id: int,
-        actual_position: Position
-    ):
+    def _advance_path(self, shipper_id: int):
         """
         Sau khi agent thực hiện 1 move, remove bước đầu tiên khỏi persistent path.
         Đồng bộ persistent path với vị trí thực tế.
@@ -651,7 +753,7 @@ class MAPDCBSSolver(Solver):
             return
 
         plan = self.current_paths[shipper_id]
-        while len(plan.path) >= 2 and plan.path[0] != actual_position:
+        if len(plan.path) >= 2:
             plan.path.pop(0)
     
     def _needs_new_task(self, shipper: Shipper, orders: Dict[int, Order]) -> bool:
@@ -691,76 +793,81 @@ class MAPDCBSSolver(Solver):
         
         return False
     
-    def _needs_replan(self, shipper: Shipper, orders: Dict[int, Order]) -> bool:
-        """CBS-style replanning conditions."""
-        sid = shipper.id
-
-        # nếu shipper chưa có path
-        if sid not in self.current_paths:
-            return True
-        plan = self.current_paths[sid]
-
-        # nếu đã đi hết path của mình
-        if len(plan.path) <= 1:
-            return True
-        
-        # nếu target mất
-        if sid not in self.current_targets:
-            return True
-        
-        oid = self.current_orders.get(sid)
-        if oid is None:
-            return True
-        if oid not in orders:
-            return True
-        
-        order = orders[oid]
-        # nếu order đã hoàn thành
-        if order.delivered:
-            return True
-        # nếu target kind hiện tại là pickup nhưng thực chất đơn đã được pickup rồi
-        kind = self.current_target_kind[sid]
-        if kind == "pickup" and order.picked:
-            return True
-        
-        return False
-    
     def _replan_agents(
         self,
         shippers: List[Shipper],
         replanning_agents: List[Shipper],
     ):
         """
-        Replan chỉ cho affected agents.
+        Replan chỉ cho conflict components có chứa replanning agents.
         Các agent khác giữ nguyên persistent paths.
         """
-        # giữ nguyên path cũ
+        dirty_ids = {s.id for s in replanning_agents}
+
+        # lấy toàn bộ persistent paths đang có
         existing_paths = {}
         for sid, plan in self.current_paths.items():
             existing_paths[sid] = plan.path
 
-        # targets cần replan
-        targets = {}
-        for shipper in replanning_agents:
-            sid = shipper.id
-            if sid not in self.current_targets:
-                continue
-
-            targets[sid] = self.current_targets[sid]
-
-        # CBS replanning
-        replanned = self._plan_paths(
-            shippers,
-            targets,
-            existing_paths=existing_paths,
-            replanning_agents={
-                s.id for s in replanning_agents
+        # dirty agents LUÔN phải được plan trước
+        if dirty_ids:
+            targets = {
+                sid: self.current_targets[sid]
+                for sid in dirty_ids
+                if sid in self.current_targets
             }
-        )
 
-        # update persistent paths
-        for sid, plan in replanned.items():
-            self.current_paths[sid] = plan
+            dirty_shippers = [
+                s for s in shippers
+                if s.id in dirty_ids
+            ]
+
+            replanned = self._plan_paths(
+                shippers=dirty_shippers,
+                targets=targets,
+            )
+
+            for sid, plan in replanned.items():
+                self.current_paths[sid] = plan
+                existing_paths[sid] = plan.path
+
+        # detect tất cả conflicts trong các paths đang có (global conflicts)
+        conflicts = self._detect_all_conflict(existing_paths)
+        if not conflicts:
+            return
+        
+        # build local conflict components
+        components = self._build_conflict_components(conflicts)
+
+        for comp in components:
+            comp_shippers = [s for s in shippers if s.id in comp]
+            local_paths = {
+                sid: self.current_paths[sid].path
+                for sid in comp if sid in self.current_paths
+            }
+
+            # targets cần replan
+            targets = {}
+            for shipper in comp_shippers:
+                sid = shipper.id
+                if sid not in self.current_targets:
+                    continue
+                targets[sid] = self.current_targets[sid]
+
+            # CBS replanning
+            replanned = self._solve_component_cbs(
+                component_agents=comp_shippers,
+                targets=targets,
+                existing_paths=local_paths
+            )
+
+            # merge back
+            for sid, path in replanned.items():
+                self.current_paths[sid] = PlannedPath(
+                    shipper_id=sid,
+                    path=path,
+                    target=targets.get(sid)
+                )
 
     # ------------------------------------------------------------------
     # Policy: tạo action
@@ -790,18 +897,26 @@ class MAPDCBSSolver(Solver):
                     current_time,
                     total_time,
                 )
-
                 if assigned:
                     replanning_agents.append(shipper)
 
         # --------------------------------------------------------
-        # Phase 2: MAPD-CBS path planning, chỉ thực hiện replan cho agents bị ảnh hưởng
+        # Phase 2: detect future conflicts trên persistent paths
         # --------------------------------------------------------
-        if replanning_agents:
+        existing_paths = {
+            sid: p.path for sid, p in self.current_paths.items()
+        }
+        future_conflicts = self._detect_all_conflict(existing_paths)
+
+        # --------------------------------------------------------
+        # Phase 3: MAPD-CBS path planning, 
+        # chỉ thực hiện replan cho agents đổi task hoặc persistent paths sắp conflict
+        # --------------------------------------------------------
+        if replanning_agents or future_conflicts:
             self._replan_agents(shippers, replanning_agents)
 
         # --------------------------------------------------------
-        # Phase 3: execute persistent paths
+        # Phase 4: execute persistent paths
         # --------------------------------------------------------
         for shipper in shippers:
             sid = shipper.id
@@ -810,11 +925,10 @@ class MAPDCBSSolver(Solver):
             cargo_op = 0
             if sid in self.current_paths:
                 plan = self.current_paths[sid]
-
                 if len(plan.path) >= 2:
-                    current_pos = plan.path[0]
-                    next_pos = plan.path[1]
-                    move = self._path_to_move(current_pos, next_pos)
+                    # current_pos = plan.path[0]
+                    next_pos = plan.path[1] # chỉ thực hiện future timestep đầu tiên
+                    move = self._path_to_move(shipper.position, next_pos)
 
             # nhặt/giao
             if sid in self.current_targets:
@@ -842,21 +956,18 @@ class MAPDCBSSolver(Solver):
         obs = self.env.reset()
 
         while not obs.get("done", False):
-            # lưu vị trí trước step
-            old_positions = {s.id: s.position for s in obs["shippers"]}
             # decide actions
             actions = self._decide_actions(obs)
             # env step
             obs, _, done, _ = self.env.step(actions)
-            # chỉ consume persistent paths nếu thành công
-            for shipper in obs["shippers"]:
-                sid = shipper.id
-                old_pos = old_positions[sid]
-                new_pos = shipper.position
-
-                # agent thực sự đã di chuyển
-                if old_pos != new_pos:
-                    self._advance_path(sid, new_pos)
+            # consume persistent paths
+            for sid, (move, _) in actions.items():
+                if sid not in self.current_paths:
+                    continue
+                plan = self.current_paths[sid]
+                # consume exactly 1 timestep
+                if len(plan.path) >= 2:
+                    self._advance_path(sid)
 
             if done:
                 break

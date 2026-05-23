@@ -8,24 +8,24 @@
       "config_name": "C4",
       "total_orders": 60,
       "orders_generated": 60,
-      "delivered": 13,
-      "on_time": 11,
-      "late": 2,
-      "missed": 47,
-      "delivery_rate": 21.666666666666668,
-      "on_time_rate": 84.61538461538461,
-      "total_reward": 254.1838,
-      "total_movecost": -4.3623,
-      "net_reward": 249.8215,
-      "elapsed_sec": 8.5012,
+      "delivered": 55,
+      "on_time": 46,
+      "late": 9,
+      "missed": 5,
+      "delivery_rate": 91.66666666666667,
+      "on_time_rate": 83.63636363636364,
+      "total_reward": 934.2019,
+      "total_movecost": -15.0788,
+      "net_reward": 919.1231,
+      "elapsed_sec": 51.4125,
       "shipper_rewards": [
-        63.4005,
-        35.3112,
-        61.1234,
-        89.9863
+        303.046,
+        228.2813,
+        287.4002,
+        100.3957
       ],
       "status": "OK",
-      "wall_sec": 8.5
+      "wall_sec": 51.42
     }
   ]
 }
