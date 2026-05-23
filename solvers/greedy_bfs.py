@@ -21,7 +21,7 @@ ALPHA = {1: 1.0, 2: 2.0, 3: 3.0}
 BETA  = {1: 0.1, 2: 0.3, 3: 0.5}
 GAMMA = 1.0
 
-MULTI_PICKUP_MIN_SCORE = 10.0 # chỉ pickup nếu đơn này có score >=10
+MULTI_PICKUP_MIN_SCORE = 25.0 # chỉ pickup nếu đơn này có score >=10
 OPPORTUNISTIC_MIN_SLACK = 5 # chỉ pickup thêm nếu deadline còn dư >= 5 timesteps
 MAX_ALLOWED_LATENESS = 5 # chỉ nhận đơn nếu ước lượng thời gian hoàn thành không quá deadline + 5 timesteps
 DELIVERY_CLUSTER_BONUS = 2 # hệ số nhân reward cho mỗi delivery nearby
@@ -41,14 +41,23 @@ class GreedyBFS(Solver):
     method_name = "GreedyBFS"
 
     def __init__(self, env: DeliveryEnv):
+        if not hasattr(env, "cfg"):
+            env.cfg = {"N": env.N, "T": env.T, "C": env.C, "G": env.G}
+
         super().__init__(env)
+        self.N = env.N
+        self.T = env.T
+        self.C = env.C
+        self.grid = env.grid
+        self.t = env.t
+
         self._distance_cache: Dict[Tuple[Position, Position], int] = {}
         self._next_move_cache: Dict[Tuple[Position, Position], Move] = {}
 
-        self.adaptive_radius = max(2, min(10, self.env.N // 3)) # bán kính để coi là "gần", dùng trong opportunistic pickup và delivery cluster, có thể điều chỉnh dựa trên kích cỡ map
+        self.adaptive_radius = max(2, min(10, self.N // 3)) # bán kính để coi là "gần", dùng trong opportunistic pickup và delivery cluster, có thể điều chỉnh dựa trên kích cỡ map
         
         self.hotspot_memory: Dict[Position, float] = defaultdict(float) # lưu nhiệt độ hotspot để ổn định điểm hotspot theo thời gian, tránh nhảy lung tung
-        self.hotspot_sigma = max(1.0, self.env.N / 2)
+        self.hotspot_sigma = max(1.0, self.N / 2)
         self.hotspot_decay = max(1.0, self.adaptive_radius) # map càng lớn decay càng chậm, vì travel time dài hơn
         self.last_seen_orders: set[int] = set() # để theo dõi đơn hàng mới xuất hiện, có thể dùng để cập nhật hotspot
 
@@ -240,8 +249,8 @@ class GreedyBFS(Solver):
         - ưu tiên đơn có reward cao hơn (nặng hơn, priority cao hơn)
         """
         # ước tính khoảng cách
-        d1 = manhattan(sh.r, sh.c, order.sx, order.sy)
-        d2 = manhattan(order.sx, order.sy, order.ex, order.ey)
+        d1 = self._distance((sh.r, sh.c), (order.sx, order.sy))
+        d2 = self._distance((order.sx, order.sy), (order.ex, order.ey))
 
         travel_time = d1 + d2
         est_delivery_time = current_time + travel_time
@@ -548,19 +557,19 @@ class GreedyBFS(Solver):
 
         actions: Dict[int, Action] = {}
         reserved_pickups: set[int] = set()
-        current_time = obs["t"]
-        total_time = obs["T"]
+        # current_time = obs["t"]
+        # total_time = obs["T"]
 
         self._update_hotspots(orders) # cập nhật hotspot trước khi quyết định action
 
         for shipper in sorted(shippers, key=lambda s: s.id):
-            delivery_order = self._select_delivery(shipper, orders, current_time)
+            delivery_order = self._select_delivery(shipper, orders, self.t)
             if delivery_order is not None:
-                urgency = self._delivery_urgency(shipper, delivery_order, current_time)
+                urgency = self._delivery_urgency(shipper, delivery_order, self.t)
 
                 # chỉ opportunistic pickup nếu còn đủ xa deadline
                 if urgency >= OPPORTUNISTIC_MIN_SLACK:
-                    opportunistic = self._select_opportunistic_pickup(shipper, orders, reserved_pickups, current_time, total_time, delivery_order)
+                    opportunistic = self._select_opportunistic_pickup(shipper, orders, reserved_pickups, self.t, self.T, delivery_order)
                     if opportunistic is not None:
                         reserved_pickups.add(opportunistic.id)
                         actions[shipper.id] = self._pickup_action(shipper, opportunistic)
@@ -570,7 +579,7 @@ class GreedyBFS(Solver):
                 continue
 
             # normal pickup
-            pickup_order = self._select_pickup(shipper, orders, reserved_pickups, current_time, total_time)
+            pickup_order = self._select_pickup(shipper, orders, reserved_pickups, self.t, self.T)
             # pickup_order = self._select_pickup(shipper, orders, reserved_pickups)
             if pickup_order is not None:
                 reserved_pickups.add(pickup_order.id)

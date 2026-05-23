@@ -4,29 +4,29 @@
   "online_generation": true,
   "results": [
     {
-      "method": "GreedyBFS",
+      "method": "MAPDCBSSolver",
       "config_name": "C5",
       "total_orders": 80,
       "orders_generated": 80,
-      "delivered": 15,
-      "on_time": 12,
-      "late": 3,
-      "missed": 65,
-      "delivery_rate": 18.75,
-      "on_time_rate": 80.0,
-      "total_reward": 314.8221,
-      "total_movecost": -5.5759,
-      "net_reward": 309.2462,
-      "elapsed_sec": 2.0625,
+      "delivered": 3,
+      "on_time": 3,
+      "late": 0,
+      "missed": 77,
+      "delivery_rate": 3.75,
+      "on_time_rate": 100.0,
+      "total_reward": 131.1616,
+      "total_movecost": -1.5168,
+      "net_reward": 129.6448,
+      "elapsed_sec": 31.4803,
       "shipper_rewards": [
-        46.2715,
-        165.3028,
-        -0.491,
-        -0.4523,
-        98.6153
+        -0.03,
+        65.1107,
+        -0.08,
+        -0.1883,
+        64.8324
       ],
       "status": "OK",
-      "wall_sec": 2.06
+      "wall_sec": 31.48
     }
   ]
 }
