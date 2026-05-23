@@ -103,6 +103,7 @@ class ACOSolver(Solver):
             sum_c = sum(o.sy for o in self.recent_orders_history)
             count = max(1, len(self.recent_orders_history))
             self.estimated_hotspot = (sum_r // count, sum_c // count)
+            
         else:
             self.surge_detected = False
 
@@ -118,10 +119,10 @@ class ACOSolver(Solver):
        
         eta = (r_base * priority_multiplier * urgency) / ((dist + 1) * weight_penalty)
        
-        if self.surge_detected and self.estimated_hotspot != (-1, -1):
-            dist_to_hotspot = self._get_static_dist(order.sx, order.sy, self.estimated_hotspot[0], self.estimated_hotspot[1])
-            if dist_to_hotspot <= 3:
-                eta *= 2.0
+        # if self.surge_detected and self.estimated_hotspot != (-1, -1):
+        #     dist_to_hotspot = self._get_static_dist(order.sx, order.sy, self.estimated_hotspot[0], self.estimated_hotspot[1])
+        #     if dist_to_hotspot <= 3:
+        #         eta *= 2.0
         return eta
 
 
@@ -149,7 +150,36 @@ class ACOSolver(Solver):
                         heapq.heappush(open_set, (new_g + h, new_g, (nr, nc), path + [move]))
         return []
 
+    def _force_hotspot_dispatch(self, obs, pending, free_shippers):
+        """
+        Logic: Nếu có Hotspot, ta 'ép' các xe rảnh ở xa phải tiến về phía Hotspot
+        trước khi ACO bắt đầu chọn đơn.
+        """
+        if not self.surge_detected or self.estimated_hotspot == (-1, -1):
+            return
 
+        h_r, h_c = self.estimated_hotspot
+        # Chỉ các xe rảnh mới bị 'ép'
+        for sh in free_shippers:
+            dist = self._get_static_dist(sh.r, sh.c, h_r, h_c)
+            # Nếu xe ở xa Hotspot quá 7 đơn vị, ta cho nó một mục tiêu 'ảo'
+            if dist > 5:
+                # Tìm đơn hàng nào nằm gần Hotspot nhất để gán cho xe này
+                best_o = None
+                min_d = float('inf')
+                for o in pending:
+                    d_to_hs = self._get_static_dist(o.sx, o.sy, h_r, h_c)
+                    if d_to_hs < min_d:
+                        min_d = d_to_hs
+                        best_o = o
+                
+                # Gán trực tiếp cho xe này, loại nó ra khỏi vòng lặp ACO sau đó
+                if best_o:
+                    self.agents[sh.id].target_oid = best_o.id
+                    self.agents[sh.id].phase = "pickup"
+                    pending.remove(best_o)
+                    free_shippers.remove(sh)
+    
     def _assign_orders_aco(self, obs: dict):
         t = obs["t"]
         pending = [o for o in obs["orders"].values() if not o.picked]
@@ -158,7 +188,11 @@ class ACOSolver(Solver):
 
         if not free_shippers or not pending: return
 
-
+        if self.surge_detected:
+            self._force_hotspot_dispatch(obs, pending, free_shippers)
+            
+        # Nếu sau khi force mà không còn xe hoặc đơn thì thoát luôn
+        if not free_shippers or not pending: return
         best_assignment: Dict[int, int] = {}
         best_epoch_reward = -float('inf')
 
@@ -218,7 +252,32 @@ class ACOSolver(Solver):
             self.agents[sid].target_oid = oid
             self.agents[sid].phase = "pickup"
 
-
+    def _optimize_delivery_route(self, sh: Shipper, obs: dict) -> List[int]:
+        """Tìm thứ tự giao hàng tối ưu (ngắn nhất) cho các đơn trong túi."""
+        if not sh.bag: return []
+        
+        # Chỉ lấy các đơn trong túi (oid)
+        order_ids = list(sh.bag)
+        if not order_ids: return []
+        
+        import itertools
+        best_order_sequence = []
+        min_total_dist = float('inf')
+        
+        # Vét cạn các hoán vị thứ tự giao
+        for p in itertools.permutations(order_ids):
+            curr_r, curr_c = sh.r, sh.c
+            dist = 0
+            for oid in p:
+                order = obs["orders"][oid]
+                dist += self._get_static_dist(curr_r, curr_c, order.ex, order.ey)
+                curr_r, curr_c = order.ex, order.ey
+            
+            if dist < min_total_dist:
+                min_total_dist = dist
+                best_order_sequence = list(p)
+        
+        return best_order_sequence
     def _get_action(self, sid: int, sh: Shipper, obs: dict) -> Tuple[str, int]:
         agent = self.agents[sid]
        
@@ -237,30 +296,12 @@ class ACOSolver(Solver):
         # 2. Kế hoạch dự phòng khi xe rảnh việc
         if agent.target_oid == -1:
             if sh.bag:
-                t_curr = obs["t"]
-                best_oid = None
-                max_score = -float('inf')
+                # --- CẢI TIẾN 2: TỐI ƯU LỘ TRÌNH GIAO HÀNG (TSP) ---
+                # Thay vì chọn đơn tham lam, ta tính thứ tự giao tối ưu
+                optimized_sequence = self._optimize_delivery_route(sh, obs)
                 
-                for oid in sh.bag:
-                    o = obs["orders"][oid]
-                    dist = self._get_static_dist(sh.r, sh.c, o.ex, o.ey)
-
-                    # Kiểm tra xem chạy tới giao thì có kịp deadline không
-                    is_on_time = (t_curr + dist <= o.et)
-                    
-                    if is_on_time:
-                        # Kịp giờ: Ưu tiên đơn giá trị cao (priority, weight) và ở GẦN (chia cho dist)
-                        score = (o.p * 15 + o.w) / (dist + 1)
-                    else:
-                        # Đã trễ giờ: Bị phạt điểm nặng (-1000)
-                        # Lúc này trừ thêm dist -> Bắt buộc xe phải chọn đơn ở GẦN NHẤT để xả nhanh nhất
-                        score = -1000 - dist
-                        
-                    if score > max_score:
-                        max_score = score
-                        best_oid = oid
-                
-                agent.target_oid = best_oid
+                # Lấy đơn đầu tiên trong thứ tự tối ưu đó
+                agent.target_oid = optimized_sequence[0]
                 agent.phase = "deliver"
                 agent.stuck_timer = 0
             else:
