@@ -43,6 +43,8 @@ class ACOSolver(Solver):
         self.grid = env.grid
         
         self.rng = random.Random(SEED + 20)
+        self.dist_matrix = {}
+        self._precompute_distances()
        
         # --- Tham số ACO Gốc ---
         self.num_ants = 10        
@@ -50,7 +52,7 @@ class ACOSolver(Solver):
         self.evaporation_rate = 0.2
         self.alpha = 1.0          
         self.beta = 5.0            
-        self.window_size = 15      
+        self.window_size = 15
        
         self.pheromones: Dict[Tuple[int, int], float] = collections.defaultdict(lambda: 1.0)
         self.agents = {i: AgentState() for i in range(self.C)}
@@ -59,7 +61,36 @@ class ACOSolver(Solver):
         self.recent_orders_history: List[Order] = []
         self.surge_detected = False
         self.estimated_hotspot: Tuple[int, int] = (-1, -1)
+    def _precompute_distances(self):
+        """Dùng BFS để tính sẵn khoảng cách thực tế (né tường) giữa mọi cặp ô trống"""
+        print("[Đồ thị] Đang nội soi bản đồ và tính toán khoảng cách thực tế...")
+        for r in range(self.N):
+            for c in range(self.N):
+                if self.grid[r][c] == 0:
+                    # Chạy BFS từ (r, c)
+                    visited = {(r, c): 0}
+                    queue = collections.deque([(r, c, 0)])
+                    
+                    while queue:
+                        curr_r, curr_c, d = queue.popleft()
+                        for move, (dr, dc) in DIRS.items():
+                            if move == "S": continue
+                            nr, nc = curr_r + dr, curr_c + dc
+                            if 0 <= nr < self.N and 0 <= nc < self.N and self.grid[nr][nc] == 0:
+                                if (nr, nc) not in visited:
+                                    visited[(nr, nc)] = d + 1
+                                    queue.append((nr, nc, d + 1))
+                    
+                    # Lưu vào cache
+                    for (nr, nc), d in visited.items():
+                        self.dist_matrix[(r, c, nr, nc)] = d
 
+    def _get_static_dist(self, r1, c1, r2, c2) -> int:
+        """Lấy khoảng cách thực tế. Nếu không có đường, phạt thật nặng"""
+        if (r1, c1, r2, c2) in self.dist_matrix:
+            return self.dist_matrix[(r1, c1, r2, c2)]
+        return manhattan(r1, c1, r2, c2) * 5  # Phạt nặng để kiến né điểm này ra
+    # ==========================================
 
     def _update_radar(self, t: int, new_orders: List[Order]):
         self.recent_orders_history.extend(new_orders)
@@ -77,7 +108,7 @@ class ACOSolver(Solver):
 
 
     def _heuristic(self, sh: Shipper, order: Order, t: int) -> float:
-        dist = manhattan(sh.r, sh.c, order.sx, order.sy)
+        dist = self._get_static_dist(sh.r, sh.c, order.sx, order.sy)
         r_base = 10.0 * (0.4 if order.w <= 0.2 else 1.0 if order.w <= 3.0 else 1.5 if order.w <= 10.0 else 2.0 if order.w <= 30.0 else 3.0)
         priority_multiplier = {1: 1.0, 2: 2.0, 3: 3.0}[order.p]
         weight_penalty = 1.0 + (order.w / max(1.0, sh.W_max))
@@ -88,7 +119,7 @@ class ACOSolver(Solver):
         eta = (r_base * priority_multiplier * urgency) / ((dist + 1) * weight_penalty)
        
         if self.surge_detected and self.estimated_hotspot != (-1, -1):
-            dist_to_hotspot = manhattan(order.sx, order.sy, self.estimated_hotspot[0], self.estimated_hotspot[1])
+            dist_to_hotspot = self._get_static_dist(order.sx, order.sy, self.estimated_hotspot[0], self.estimated_hotspot[1])
             if dist_to_hotspot <= 3:
                 eta *= 2.0
         return eta
@@ -114,7 +145,7 @@ class ACOSolver(Solver):
                 if 0 <= nr < self.N and 0 <= nc < self.N and self.grid[nr][nc] == 0:
                     if (nr, nc) not in visited and (nr, nc) not in obstacles:
                         new_g = g + 1
-                        h = manhattan(nr, nc, goal[0], goal[1])
+                        h = self._get_static_dist(nr, nc, goal[0], goal[1])
                         heapq.heappush(open_set, (new_g + h, new_g, (nr, nc), path + [move]))
         return []
 
@@ -165,7 +196,7 @@ class ACOSolver(Solver):
                     ant_assign[sh.id] = chosen.id
                     avail.remove(chosen)
                    
-                    dist = manhattan(sh.r, sh.c, chosen.sx, chosen.sy)
+                    dist = self._get_static_dist(sh.r, sh.c, chosen.sx, chosen.sy)
                     ant_reward += self._heuristic(sh, chosen, t) - (dist * 0.01)
 
 
@@ -212,8 +243,8 @@ class ACOSolver(Solver):
                 
                 for oid in sh.bag:
                     o = obs["orders"][oid]
-                    dist = manhattan(sh.r, sh.c, o.ex, o.ey)
-                    
+                    dist = self._get_static_dist(sh.r, sh.c, o.ex, o.ey)
+
                     # Kiểm tra xem chạy tới giao thì có kịp deadline không
                     is_on_time = (t_curr + dist <= o.et)
                     
@@ -244,8 +275,8 @@ class ACOSolver(Solver):
                     if not o.picked and o.id not in claimed_by_others and o.w <= sh.W_max:
                         
                         # --- CẢI TIẾN 7.2: TẦM NHÌN SINH TỬ ---
-                        dist_to_pickup = manhattan(sh.r, sh.c, o.sx, o.sy)
-                        dist_to_dropoff = manhattan(o.sx, o.sy, o.ex, o.ey)
+                        dist_to_pickup = self._get_static_dist(sh.r, sh.c, o.sx, o.sy)
+                        dist_to_dropoff = self._get_static_dist(o.sx, o.sy, o.ex, o.ey)
                         
                         if obs["t"] + dist_to_pickup + dist_to_dropoff <= self.T:
                             pending.append((o, dist_to_pickup, dist_to_dropoff))
@@ -379,6 +410,4 @@ class ACOSolver(Solver):
            
         elapsed = time.time() - t0
         return self.env.result("Ant Colony Optimization", elapsed)
-
-
-
+ 
