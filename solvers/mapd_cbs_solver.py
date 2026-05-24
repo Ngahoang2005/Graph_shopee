@@ -382,9 +382,8 @@ class MAPDCBSSolver(Solver):
             return conflicts
         
         max_future_timestep = max(window, max(len(p) for p in paths.values()))
-        # max_future_timestep = max(len(p) for p in paths.values())
 
-        for t in range(max_future_timestep):
+        for t in range(max_future_timestep): # scan từng timestep
             # kiểm tra sự tồn tại của vertex conflicts
             occupied = {}
             for a in agents:
@@ -429,6 +428,110 @@ class MAPDCBSSolver(Solver):
                                 edge=((prev1), (curr1))
                             )
                         )
+        return conflicts
+    
+    def _detect_incremental_conflict(
+        self,
+        paths: Dict[int, List[Position]],
+        dirty_agents: Set[int],
+        window: int = 12
+    ) -> List[Conflict]:
+        """
+        Incremental conflict detection: Chỉ detect conflicts liên quan dirty agents.
+        Ý tưởng:
+        - Agents khác giữ nguyên path
+        - Chỉ recompute conflicts của agents vừa replan
+
+        Complexity:
+            O(W * d * k)
+        với:
+            d = số dirty agents
+            k = tổng agents
+        """
+
+        conflicts = []
+        all_agents = list(paths.keys())
+
+        if not dirty_agents:
+            return conflicts
+
+        max_t = min(
+            window,
+            max(len(p) for p in paths.values())
+        )
+
+        for t in range(max_t): # scan theo từng timestep
+            # kiểm tra vertex conflict
+            # position -> list agents
+            occupied = defaultdict(list)
+
+            for a in all_agents:
+                path = paths[a]
+                curr = path[t] if t < len(path) else path[-1]
+                occupied[curr].append(a)
+
+            # chỉ check dirty agents
+            for pos, agents_here in occupied.items():
+                if len(agents_here) < 2:
+                    continue
+
+                # chỉ giữ conflicts liên quan dirty agents
+                dirty_here = [
+                    a for a in agents_here
+                    if a in dirty_agents
+                ]
+
+                if not dirty_here:
+                    continue
+
+                # tạo conflicts
+                for da in dirty_here:
+                    for other in agents_here:
+                        if da == other:
+                            continue
+
+                        conflicts.append(
+                            Conflict(
+                                kind="vertex",
+                                a1=da,
+                                a2=other,
+                                time=t,
+                                cell=pos
+                            )
+                        )
+
+            # kiểm tra edge conflicts
+            edge_table = {}
+            for a in all_agents:
+                if t == 0:
+                    continue
+
+                path = paths[a]
+
+                prev = path[t - 1] if t - 1 < len(path) else path[-1]
+                curr = path[t] if t < len(path) else path[-1]
+                edge = (prev, curr)
+                reverse = (curr, prev)
+
+                # Edge swap conflict
+                if reverse in edge_table:
+                    other_agent = edge_table[reverse]
+
+                    # chỉ giữ conflict nếu liên quan dirty agent
+                    if (
+                        a in dirty_agents
+                        or other_agent in dirty_agents
+                    ):
+                        conflicts.append(
+                            Conflict(
+                                kind="edge",
+                                a1=other_agent,
+                                a2=a,
+                                time=t,
+                                edge=edge
+                            )
+                        )
+                edge_table[edge] = a
         return conflicts
     
     def _build_conflict_components(self, conflicts: List[Conflict]) -> List[Set[int]]:
@@ -799,7 +902,7 @@ class MAPDCBSSolver(Solver):
         replanning_agents: List[Shipper],
     ):
         """
-        Replan chỉ cho conflict components có chứa replanning agents.
+        Replan chỉ cho conflict components có chứa replanning agents (dirty agents).
         Các agent khác giữ nguyên persistent paths.
         """
         dirty_ids = {s.id for s in replanning_agents}
@@ -809,30 +912,33 @@ class MAPDCBSSolver(Solver):
         for sid, plan in self.current_paths.items():
             existing_paths[sid] = plan.path
 
-        # dirty agents LUÔN phải được plan trước
+        # dirty agents LUÔN phải được replan trước
         if dirty_ids:
+            # lấy target mới
             targets = {
                 sid: self.current_targets[sid]
                 for sid in dirty_ids
                 if sid in self.current_targets
             }
-
+            # lấy đúng dirty agents
             dirty_shippers = [
                 s for s in shippers
                 if s.id in dirty_ids
             ]
-
+            # replan chỉ dirty agents --> dirty agents tự plan đường mới trước
             replanned = self._plan_paths(
                 shippers=dirty_shippers,
                 targets=targets,
             )
-
+            # ghi đè lên persistent paths
             for sid, plan in replanned.items():
                 self.current_paths[sid] = plan
                 existing_paths[sid] = plan.path
 
-        # detect tất cả conflicts trong các paths đang có (global conflicts)
-        conflicts = self._detect_all_conflict(existing_paths)
+        # detect conflicts mới sinh ra giữa dirty agents và các agents còn lại
+        # sau khi dirty agents vừa replan
+        # conflicts = self._detect_all_conflict(existing_paths)
+        conflicts = self._detect_incremental_conflict(existing_paths, dirty_agents=dirty_ids, window=8)
         if not conflicts:
             return
         
@@ -846,7 +952,7 @@ class MAPDCBSSolver(Solver):
                 for sid in comp if sid in self.current_paths
             }
 
-            # targets cần replan
+            # local targets cần replan
             targets = {}
             for shipper in comp_shippers:
                 sid = shipper.id
@@ -854,7 +960,7 @@ class MAPDCBSSolver(Solver):
                     continue
                 targets[sid] = self.current_targets[sid]
 
-            # CBS replanning
+            # local CBS replanning
             replanned = self._solve_component_cbs(
                 component_agents=comp_shippers,
                 targets=targets,

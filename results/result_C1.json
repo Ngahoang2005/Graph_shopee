@@ -17,13 +17,13 @@
       "total_reward": 268.3021,
       "total_movecost": -1.2332,
       "net_reward": 267.0689,
-      "elapsed_sec": 0.8346,
+      "elapsed_sec": 0.5085,
       "shipper_rewards": [
         229.5532,
         37.5156
       ],
       "status": "OK",
-      "wall_sec": 0.84
+      "wall_sec": 0.51
     }
   ]
 }
