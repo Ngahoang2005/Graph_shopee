@@ -1,0 +1,32 @@
+{
+  "config_name": "C5",
+  "orders_total_fixed": 80,
+  "online_generation": true,
+  "results": [
+    {
+      "method": "MAPDCBSSolver",
+      "config_name": "C5",
+      "total_orders": 80,
+      "orders_generated": 80,
+      "delivered": 74,
+      "on_time": 56,
+      "late": 18,
+      "missed": 6,
+      "delivery_rate": 92.5,
+      "on_time_rate": 75.67567567567568,
+      "total_reward": 1336.1303,
+      "total_movecost": -26.0583,
+      "net_reward": 1310.072,
+      "elapsed_sec": 14.176,
+      "shipper_rewards": [
+        222.365,
+        386.0812,
+        245.2811,
+        192.0413,
+        264.3034
+      ],
+      "status": "OK",
+      "wall_sec": 14.18
+    }
+  ]
+}
