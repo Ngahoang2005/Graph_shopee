@@ -111,18 +111,14 @@ class ACOSolver(Solver):
     def _heuristic(self, sh: Shipper, order: Order, t: int) -> float:
         dist = self._get_static_dist(sh.r, sh.c, order.sx, order.sy)
         r_base = 10.0 * (0.4 if order.w <= 0.2 else 1.0 if order.w <= 3.0 else 1.5 if order.w <= 10.0 else 2.0 if order.w <= 30.0 else 3.0)
+        
         priority_multiplier = {1: 1.0, 2: 2.0, 3: 3.0}[order.p]
-        weight_penalty = 1.0 + (order.w / max(1.0, sh.W_max))
-       
-        time_left = max(1, order.et - t - dist)
-        urgency = 100.0 / time_left if time_left > 0 else 0.1
-       
-        eta = (r_base * priority_multiplier * urgency) / ((dist + 1) * weight_penalty)
-       
-        # if self.surge_detected and self.estimated_hotspot != (-1, -1):
-        #     dist_to_hotspot = self._get_static_dist(order.sx, order.sy, self.estimated_hotspot[0], self.estimated_hotspot[1])
-        #     if dist_to_hotspot <= 3:
-        #         eta *= 2.0
+        is_in_time = t + dist + self._get_static_dist(order.sx, order.sy, order.ex, order.ey) <= self.T
+        eta = r_base * priority_multiplier 
+        if self.surge_detected and self.estimated_hotspot != (-1, -1):
+            dist_to_hotspot = self._get_static_dist(order.sx, order.sy, self.estimated_hotspot[0], self.estimated_hotspot[1])
+            if dist_to_hotspot <= 3:
+                eta *= 2 
         return eta
 
 
