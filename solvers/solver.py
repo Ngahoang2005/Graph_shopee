@@ -15,6 +15,7 @@ class Solver:
             raise TypeError("Solver chỉ hỗ trợ khởi tạo dạng Solver(env: DeliveryEnv).")
 
         self.env: DeliveryEnv = env
+        self.cfg = env.public_cfg if hasattr(env, "public_cfg") else env.cfg
         self.grid = env.grid
         self.orders: list[Order] = []
 
