@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-
 import collections
 import heapq
 import random
 import time
 from typing import Dict, List, Tuple
-
+import copy
 
 from env import DeliveryEnv, Order, Shipper, manhattan, DIRS, SEED
 from solvers.solver import Solver
@@ -17,7 +16,6 @@ class AgentState:
     def __init__(self):
         self.target_oid = -1
         self.phase = "idle"
-        # --- PHỤC VỤ CẢI TIẾN 4: BỘ ĐẾM KẸT XE ---
         self.last_pos = (-1, -1)
         self.stuck_timer = 0
 
@@ -27,8 +25,6 @@ class ACOSolver(Solver):
     Thuật toán Ant Colony Optimization (ACO) tương thích với
     Môi trường Online Stateful (self.env.step).
     """
-
-
     def __init__(self, env: DeliveryEnv):
        
         env.cfg = {"N": env.N, "T": env.T, "C": env.C, "G": env.G}
@@ -158,7 +154,7 @@ class ACOSolver(Solver):
         # Chỉ các xe rảnh mới bị 'ép'
         for sh in free_shippers:
             dist = self._get_static_dist(sh.r, sh.c, h_r, h_c)
-            # Nếu xe ở xa Hotspot quá 7 đơn vị, ta cho nó một mục tiêu 'ảo'
+            # Nếu xe ở xa Hotspot quá 5 đơn vị, ta cho nó một mục tiêu 'ảo'
             if dist > 5:
                 # Tìm đơn hàng nào nằm gần Hotspot nhất để gán cho xe này
                 best_o = None
@@ -181,73 +177,79 @@ class ACOSolver(Solver):
         pending = [o for o in obs["orders"].values() if not o.picked]
         free_shippers = [sh for sh in obs["shippers"] if self.agents[sh.id].phase == "idle"]
 
-
         if not free_shippers or not pending: return
 
         if self.surge_detected:
             self._force_hotspot_dispatch(obs, pending, free_shippers)
             
-        # Nếu sau khi force mà không còn xe hoặc đơn thì thoát luôn
+            
         if not free_shippers or not pending: return
-        best_assignment: Dict[int, int] = {}
-        best_epoch_reward = -float('inf')
 
+        best_assignment: Dict[int, List[int]] = {}
+        best_epoch_reward = -float('inf')
 
         for _ in range(self.num_iterations):
             for ant in range(self.num_ants):
-                ant_assign = {}
-                ant_reward = 0.0
+                ant_routes = {} 
+                ant_total_reward = 0.0
                 avail = pending.copy()
                 self.rng.shuffle(avail)
-               
+                
                 for sh in free_shippers:
-                    w_carried = sum(obs["orders"][oid].w for oid in sh.bag if oid in obs["orders"])
-                    valid = [o for o in avail if len(sh.bag) < sh.K_max and w_carried + o.w <= sh.W_max]
-                    if not valid: continue
-                       
-                    probs = []
-                    for o in valid:
-                        tau = self.pheromones[(sh.r * self.N + sh.c, o.id)]
-                        eta = self._heuristic(sh, o, t)
-                        probs.append((tau ** self.alpha) * (eta ** self.beta))
-                       
-                    s = sum(probs)
-                    if s == 0: chosen = self.rng.choice(valid)
-                    else:
-                        r = self.rng.uniform(0, s)
-                        acc = 0.0
-                        for idx, p in enumerate(probs):
-                            acc += p
-                            if acc >= r:
-                                chosen = valid[idx]
-                                break
-                        else: chosen = valid[-1]
-                           
-                    ant_assign[sh.id] = chosen.id
-                    avail.remove(chosen)
-                   
-                    dist = self._get_static_dist(sh.r, sh.c, chosen.sx, chosen.sy)
-                    ant_reward += self._heuristic(sh, chosen, t) - (dist * 0.01)
-
-
-                if ant_reward > best_epoch_reward:
-                    best_epoch_reward = ant_reward
-                    best_assignment = ant_assign.copy()
-       
+                    route = []
+                    current_w = 0
+                    # Không dùng tọa độ để tính pheromone nữa
+                    
+                    while len(route) < sh.K_max:
+                        valid = [o for o in avail if current_w + o.w <= sh.W_max]
+                        if not valid: break
+                        
+                        probs = []
+                        for o in valid:
+                            # --- SỬA CHỖ 1: PHEROMONE GẮN VÀO (SHIPPER_ID, ORDER_ID) ---
+                            tau = self.pheromones.get((sh.id, o.id), 1.0)
+                            eta = self._heuristic(sh, o, t) 
+                            probs.append((tau ** self.alpha) * (eta ** self.beta))
+                        
+                        s = sum(probs)
+                        if s == 0: chosen = self.rng.choice(valid)
+                        else:
+                            r = self.rng.uniform(0, s)
+                            acc = 0.0
+                            for idx, p in enumerate(probs):
+                                acc += p
+                                if acc >= r:
+                                    chosen = valid[idx]
+                                    break
+                            else: chosen = valid[-1]
+                            
+                        route.append(chosen.id)
+                        current_w += chosen.w
+                        avail.remove(chosen)
+                        ant_total_reward += self._heuristic(sh, chosen, t)
+                    
+                    ant_routes[sh.id] = route
+                
+                if ant_total_reward > best_epoch_reward:
+                    best_epoch_reward = ant_total_reward
+                    best_assignment = copy.deepcopy(ant_routes)
+        
+        # 2. Update Pheromones (Sửa chỗ 2)
         for key in list(self.pheromones.keys()):
             self.pheromones[key] *= (1.0 - self.evaporation_rate)
-            if self.pheromones[key] < 0.01: del self.pheromones[key]
-               
+            
         if best_epoch_reward > 0:
-            for sh_id, o_id in best_assignment.items():
-                sh = next(s for s in obs["shippers"] if s.id == sh_id)
-                self.pheromones[(sh.r * self.N + sh.c, o_id)] += 10.0 / self.window_size
+            for sh_id, o_ids in best_assignment.items():
+                for oid in o_ids:
+                    # --- SỬA CHỖ 2: CẬP NHẬT PHEROMONE THEO ID ---
+                    self.pheromones[(sh_id, oid)] = self.pheromones.get((sh_id, oid), 1.0) + (10.0 / self.num_iterations)
 
-
-        for sid, oid in best_assignment.items():
-            self.agents[sid].target_oid = oid
-            self.agents[sid].phase = "pickup"
-
+        # 3. Gán Task
+        for sid, o_ids in best_assignment.items():
+            if o_ids:
+                self.agents[sid].target_oid = o_ids[0]
+                self.agents[sid].phase = "pickup"
+    
     def _optimize_delivery_route(self, sh: Shipper, obs: dict) -> List[int]:
         """Tìm thứ tự giao hàng tối ưu (ngắn nhất) cho các đơn trong túi."""
         if not sh.bag: return []
@@ -274,6 +276,7 @@ class ACOSolver(Solver):
                 best_order_sequence = list(p)
         
         return best_order_sequence
+    
     def _get_action(self, sid: int, sh: Shipper, obs: dict) -> Tuple[str, int]:
         agent = self.agents[sid]
        
