@@ -88,34 +88,33 @@ class ACOSolver(Solver):
         return manhattan(r1, c1, r2, c2) * 5  # Phạt nặng để kiến né điểm này ra
     # ==========================================
 
-    def _update_radar(self, t: int, new_orders: List[Order]):
-        self.recent_orders_history.extend(new_orders)
-        self.recent_orders_history = [o for o in self.recent_orders_history if t - o.appear_t <= 30]
-       
-        expected_orders = (self.cfg.get("G", 100) / max(1, self.T)) * 30
-        if len(self.recent_orders_history) > expected_orders * 1.5:
-            self.surge_detected = True
-            sum_r = sum(o.sx for o in self.recent_orders_history)
-            sum_c = sum(o.sy for o in self.recent_orders_history)
-            count = max(1, len(self.recent_orders_history))
-            self.estimated_hotspot = (sum_r // count, sum_c // count)
-            
-        else:
-            self.surge_detected = False
-
-
     def _heuristic(self, sh: Shipper, order: Order, t: int) -> float:
         dist = self._get_static_dist(sh.r, sh.c, order.sx, order.sy)
         r_base = 10.0 * (0.4 if order.w <= 0.2 else 1.0 if order.w <= 3.0 else 1.5 if order.w <= 10.0 else 2.0 if order.w <= 30.0 else 3.0)
         
         priority_multiplier = {1: 1.0, 2: 2.0, 3: 3.0}[order.p]
         is_in_time = t + dist + self._get_static_dist(order.sx, order.sy, order.ex, order.ey) <= self.T
-        eta = r_base * priority_multiplier 
+        eta = r_base * priority_multiplier / (dist + 1) * (1.5 if is_in_time else 0.5)
         if self.surge_detected and self.estimated_hotspot != (-1, -1):
             dist_to_hotspot = self._get_static_dist(order.sx, order.sy, self.estimated_hotspot[0], self.estimated_hotspot[1])
             if dist_to_hotspot <= 3:
                 eta *= 2 
         return eta
+    def _update_radar(self, t: int, new_orders: List[Order]):
+        self.recent_orders_history.extend(new_orders)
+        self.recent_orders_history = [o for o in self.recent_orders_history if t - o.appear_t <= 30]
+
+        expected_orders = (self.cfg.get("G", 100) / max(1, self.T)) * 30
+        surge_threshold = max(expected_orders * 1.25, expected_orders + 2)
+
+        if len(self.recent_orders_history) >= surge_threshold:
+            self.surge_detected = True
+            sum_r = sum(o.sx for o in self.recent_orders_history)   
+            sum_c = sum(o.sy for o in self.recent_orders_history)
+            count = max(1, len(self.recent_orders_history))
+            self.estimated_hotspot = (sum_r // count, sum_c // count)
+        else:
+            self.surge_detected = False
 
 
     def _find_path(self, start: Tuple[int, int], goal: Tuple[int, int], obstacles: set) -> List[str]:
